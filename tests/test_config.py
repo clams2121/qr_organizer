@@ -91,3 +91,44 @@ def test_broken_toml_is_fatal(env, monkeypatch):
     target.write_text("this is not = = toml")
     with pytest.raises(FatalConfigError, match="not valid TOML"):
         load_config()
+
+
+def test_an_older_database_gains_the_new_table_and_column(env, tmp_path):
+    """The v1 -> v2 upgrade path, which only runs against a pre-existing database."""
+    from qr_organizer.db import SCHEMA_VERSION, Database
+
+    path = tmp_path / "old.db"
+    database = Database(path)
+    database.initialise()
+
+    # Rewind it to look like a v1 database written before pending returns existed.
+    with database.write() as conn:
+        conn.execute("DROP TABLE pending_returns")
+        conn.execute("ALTER TABLE inventory_sessions DROP COLUMN returns_count")
+    database.set_meta("schema_version", "1")
+    database.close()
+
+    reopened = Database(path)
+    reopened.initialise()
+
+    assert reopened.get_meta("schema_version") == str(SCHEMA_VERSION)
+    columns = {
+        row["name"] for row in reopened.query("PRAGMA table_info(inventory_sessions)")
+    }
+    assert "returns_count" in columns
+    reopened.query("SELECT COUNT(*) FROM pending_returns")
+    reopened.close()
+
+
+def test_a_newer_database_is_refused_rather_than_downgraded(env, tmp_path):
+    from qr_organizer.db import Database
+    from qr_organizer.errors import StorageError
+
+    path = tmp_path / "future.db"
+    database = Database(path)
+    database.initialise()
+    database.set_meta("schema_version", "99")
+    database.close()
+
+    with pytest.raises(StorageError, match="newer version"):
+        Database(path).initialise()

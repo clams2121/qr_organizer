@@ -17,6 +17,7 @@ scan a place code  →  scan a bin code  →  photograph the contents  →  sear
 
 - [What it does](#what-it-does)
 - [How identification works](#how-identification-works)
+- [Returns](#returns)
 - [Install](#install)
   - [systemd (recommended)](#systemd-recommended)
   - [Plain venv](#plain-venv)
@@ -55,7 +56,8 @@ bin.
 then tick them off as you physically pick them up. Ticking marks the item *in
 use* until it is scanned back into a bin.
 
-Two rules the app holds to strictly:
+Three rules the app holds to strictly, all of them the same rule really — the
+app records what it saw, and you decide what it means:
 
 - **A re-inventory scan never moves a bin.** Photographing a bin's contents
   updates its contents and nothing else. Location changes are always a
@@ -63,6 +65,10 @@ Two rules the app holds to strictly:
 - **Items are never auto-deleted.** Something not detected in the latest photo is
   flagged *missing*, because missing usually means moved, loaned or misplaced —
   not gone from the world.
+- **A returned item is confirmed, never assumed.** If something you had out on
+  loan, in use, or flagged missing turns up in a bin photo, the app queues the
+  question rather than deciding. Its status doesn't budge until you say "it's
+  back" — see [Returns](#returns).
 
 ---
 
@@ -104,6 +110,46 @@ rather than guessed at or silently dropped.
 Embeddings are always local ([open-clip](https://github.com/mlfoundations/open_clip)),
 so the visual-matching library costs nothing per lookup and works offline in
 both cases.
+
+---
+
+## Returns
+
+A visual match is evidence, not a decision. When a re-inventory photo turns up
+something you had put elsewhere, the app says so and waits:
+
+> **Did these come back? (2)**
+> These turned up in a photo of this bin, but you had them somewhere else.
+> Nothing has changed yet.
+>
+> `wrench` — with Dave next door → **It's back** · Still out
+> `roll of tape` — in use → **It's back** · Still out
+>
+> **All 2 are back** · None of them are
+
+Until you answer, the item keeps exactly the status you gave it: still on loan
+to Dave, still in use, still flagged missing. Confirming checks it into that bin
+and takes it off Dave's loan (the loan itself stays open until everything on it
+is back); dismissing leaves everything untouched and records that you checked.
+Both outcomes land in the item's history, so a wrong match costs one tap and
+nothing else.
+
+The details:
+
+- **The same question is never asked twice.** Photographing a bin three times
+  queues one question per item, not three.
+- **Checking an item in by hand clears the question**, because it's moot.
+- **A queued item can't also be flagged missing** on the next scan — no
+  contradictory flags.
+- Pending returns appear on the bin page, on the item's own page, and in
+  `/review` alongside the items waiting for a label. One button confirms or
+  dismisses a whole bin's worth at once.
+
+This applies to all three states — *loaned*, *in use*, and *missing*. A missing
+item reappearing is arguably the app correcting its own earlier guess, and you
+could reasonably let that one auto-resolve; it's a one-line change in
+`_reconcile` if you'd rather. The bulk-confirm button exists so that the
+common case (you re-photograph a shelf and everything's there) is a single tap.
 
 ---
 
@@ -430,6 +476,14 @@ uninterrupted, short enough that yesterday's context never silently tags today's
 scans. On expiry the context is *deleted* on read, so a stale location can't be
 picked up later.
 
+**Returns are confirmed, not inferred.** The first cut of this auto-returned any
+matched item that had been loaned, in use or missing — the reasoning being that
+seeing it in the bin *is* it being scanned back in. That was the wrong default:
+it lets one bad embedding match silently tell you Dave gave your socket set back
+when he didn't, and you'd never know to look. The app now queues the question
+and changes nothing until answered. The cost is a tap; the bulk action makes it
+one tap per bin.
+
 **In-use items stay in search results with a badge.** Knowing that the socket set
 exists but Dave has it is almost always the answer you wanted; hiding it makes
 the app look like the item vanished. A filter narrows to in-bin-only when you
@@ -467,7 +521,7 @@ than being coerced into something plausible. A crop the model won't name goes to
 
 ```bash
 uv sync --extra dev
-uv run pytest                    # 97 tests, no network, no API key needed
+uv run pytest                    # 110 tests, no network, no API key needed
 uv run ruff check src tests
 ```
 

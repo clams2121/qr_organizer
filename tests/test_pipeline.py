@@ -15,6 +15,7 @@ from qr_organizer import paths
 from qr_organizer.errors import VisionError
 from qr_organizer.services import bins as bins_service
 from qr_organizer.services import items as items_service
+from qr_organizer.services import loans as loans_service
 from qr_organizer.services import photos as photos_service
 
 
@@ -100,7 +101,10 @@ def test_missing_items_are_flagged_never_deleted(db, cfg, photo, pipeline_factor
     assert still_there["n"] == 3
 
 
-def test_a_returning_item_stops_being_missing(db, cfg, photo, pipeline_factory, tmp_path):
+def test_a_reappearing_item_is_queued_for_confirmation_not_assumed(
+    db, cfg, photo, pipeline_factory, tmp_path
+):
+    """Seeing something again is evidence, not a decision the app gets to make."""
     record = bins_service.create_bin(db, code="BIN-0001")
     bin_id = int(record["id"])
     pipeline, _, _ = pipeline_factory(list(LAYOUT))
@@ -116,7 +120,122 @@ def test_a_returning_item_stops_being_missing(db, cfg, photo, pipeline_factory, 
     result = _run(pipeline3, db, cfg, bin_id, everything)
 
     assert result.added_item_ids == []
-    assert db.query_one("SELECT COUNT(*) AS n FROM items WHERE status='missing'")["n"] == 0
+    assert len(result.pending_return_item_ids) == 3
+    # Nothing has changed about the items themselves yet.
+    assert db.query_one("SELECT COUNT(*) AS n FROM items WHERE status='missing'")["n"] == 3
+
+    queued = items_service.pending_returns(db, bin_id=bin_id)
+    assert len(queued) == 3
+    assert {entry["prior_status"] for entry in queued} == {"missing"}
+
+
+def test_confirming_a_return_is_what_changes_the_status(
+    db, cfg, photo, pipeline_factory, tmp_path
+):
+    record = bins_service.create_bin(db, code="BIN-0001")
+    bin_id = int(record["id"])
+    pipeline, _, _ = pipeline_factory(["wrench"])
+    result = _run(pipeline, db, cfg, bin_id, make_photo(tmp_path, ["wrench"]))
+    item_id = result.added_item_ids[0]
+
+    loan = loans_service.create_loan(db, person_name="Dave", code="LOAN-0001")
+    loans_service.assign_items(db, int(loan["id"]), [item_id])
+
+    pipeline2, _, _ = pipeline_factory(["wrench"])
+    second = _run(
+        pipeline2, db, cfg, bin_id, make_photo(tmp_path, ["wrench"], name="again.jpg")
+    )
+    assert second.pending_return_item_ids == [item_id]
+    assert items_service.get_item(db, item_id)["status"] == "loaned"
+
+    entry = items_service.pending_returns(db)[0]
+    items_service.confirm_return(db, int(entry["entry_id"]))
+
+    item = items_service.get_item(db, item_id)
+    assert item["status"] == "in_bin"
+    assert item["loan_id"] is None
+    assert items_service.pending_returns(db) == []
+
+
+def test_dismissing_a_return_leaves_the_item_exactly_as_it_was(
+    db, cfg, photo, pipeline_factory, tmp_path
+):
+    """A wrong visual match must cost nothing but one tap."""
+    record = bins_service.create_bin(db, code="BIN-0001")
+    bin_id = int(record["id"])
+    pipeline, _, _ = pipeline_factory(["wrench"])
+    result = _run(pipeline, db, cfg, bin_id, make_photo(tmp_path, ["wrench"]))
+    item_id = result.added_item_ids[0]
+
+    loan = loans_service.create_loan(db, person_name="Dave", code="LOAN-0001")
+    loans_service.assign_items(db, int(loan["id"]), [item_id])
+
+    pipeline2, _, _ = pipeline_factory(["wrench"])
+    _run(pipeline2, db, cfg, bin_id, make_photo(tmp_path, ["wrench"], name="again.jpg"))
+
+    entry = items_service.pending_returns(db)[0]
+    items_service.dismiss_return(db, int(entry["entry_id"]))
+
+    item = items_service.get_item(db, item_id)
+    assert item["status"] == "loaned"
+    assert item["loan_person"] == "Dave"
+    assert items_service.pending_returns(db) == []
+
+
+def test_the_same_question_is_not_asked_twice(db, cfg, photo, pipeline_factory, tmp_path):
+    record = bins_service.create_bin(db, code="BIN-0001")
+    bin_id = int(record["id"])
+    pipeline, _, _ = pipeline_factory(["wrench"])
+    result = _run(pipeline, db, cfg, bin_id, make_photo(tmp_path, ["wrench"]))
+    items_service.mark_in_use(db, result.added_item_ids[0])
+
+    for index in range(3):
+        again, _, _ = pipeline_factory(["wrench"])
+        _run(again, db, cfg, bin_id, make_photo(tmp_path, ["wrench"], name=f"r{index}.jpg"))
+
+    assert len(items_service.pending_returns(db)) == 1
+
+
+def test_checking_an_item_in_by_hand_clears_its_queued_question(
+    db, cfg, photo, pipeline_factory, tmp_path
+):
+    record = bins_service.create_bin(db, code="BIN-0001")
+    bin_id = int(record["id"])
+    pipeline, _, _ = pipeline_factory(["wrench"])
+    result = _run(pipeline, db, cfg, bin_id, make_photo(tmp_path, ["wrench"]))
+    item_id = result.added_item_ids[0]
+    items_service.mark_in_use(db, item_id)
+
+    pipeline2, _, _ = pipeline_factory(["wrench"])
+    _run(pipeline2, db, cfg, bin_id, make_photo(tmp_path, ["wrench"], name="again.jpg"))
+    assert len(items_service.pending_returns(db)) == 1
+
+    items_service.check_into_bin(db, item_id, bin_id)
+    assert items_service.pending_returns(db) == []
+
+
+def test_a_queued_return_is_not_also_flagged_missing_next_time(
+    db, cfg, photo, pipeline_factory, tmp_path
+):
+    """An item awaiting confirmation must not accumulate contradictory flags."""
+    record = bins_service.create_bin(db, code="BIN-0001")
+    bin_id = int(record["id"])
+    pipeline, _, _ = pipeline_factory(["wrench"])
+    result = _run(pipeline, db, cfg, bin_id, make_photo(tmp_path, ["wrench"]))
+    item_id = result.added_item_ids[0]
+    items_service.mark_in_use(db, item_id)
+
+    pipeline2, _, _ = pipeline_factory(["wrench"])
+    _run(pipeline2, db, cfg, bin_id, make_photo(tmp_path, ["wrench"], name="seen.jpg"))
+
+    # Now photograph the bin with the item genuinely absent.
+    pipeline3, _, _ = pipeline_factory(["bag of screws"])
+    third = _run(
+        pipeline3, db, cfg, bin_id, make_photo(tmp_path, ["bag of screws"], name="gone.jpg")
+    )
+
+    assert item_id not in third.missing_item_ids
+    assert items_service.get_item(db, item_id)["status"] == "in_use"
 
 
 def test_rag_reuses_a_corrected_label_on_a_later_photo(db, cfg, photo, pipeline_factory, tmp_path):

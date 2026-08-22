@@ -59,6 +59,7 @@ def home():
         bins=bins_service.list_bins(context.db)[:12],
         locations=locations_service.list_locations(context.db),
         review=items_service.list_needing_review(context.db, limit=8),
+        pending_returns=items_service.pending_return_count(context.db),
         recent_scans=scans.recent(context.db, limit=8),
         pull_total=total,
         pull_done=done,

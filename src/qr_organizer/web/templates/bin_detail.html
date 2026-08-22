@@ -24,7 +24,8 @@
   {% else %}
     <p><b>Done.</b> {{ session.detected_count }} detected —
        {{ session.added_count }} new, {{ session.matched_count }} already known,
-       {{ session.missing_count }} now missing.</p>
+       {{ session.missing_count }} now missing{% if session.returns_count %},
+       {{ session.returns_count }} waiting for you to confirm they're back{% endif %}.</p>
     {% if session.error %}<p class="muted">{{ session.error }}</p>{% endif %}
   {% endif %}
 </div>
@@ -41,6 +42,50 @@
     <button type="submit" class="primary">Identify contents</button>
   </form>
 </div>
+
+{% if returns %}
+<div class="panel warn">
+  <h2>Did these come back? <span class="muted">({{ returns|length }})</span></h2>
+  <p class="muted">These turned up in a photo of this bin, but you had them somewhere
+    else. Nothing has changed yet — confirm and they go back in the bin, or say they're
+    still out and they stay exactly as they are.</p>
+  <div class="grid">
+    {% for entry in returns %}
+    <div class="card flagged">
+      {% if entry.thumbnail_path %}
+      <a href="{{ url_for('inventory.item_detail', item_id=entry.item_id) }}">
+        <img src="{{ url_for('media.thumbnail', relative=entry.thumbnail_path) }}"
+             alt="{{ entry.label }}"></a>
+      {% endif %}
+      <b>{{ entry.label }}</b>
+      <div class="badges">
+        {% if entry.prior_status == 'loaned' %}
+          <span class="badge loaned">with {{ entry.loan_person }}</span>
+        {% elif entry.prior_status == 'in_use' %}<span class="badge inuse">in use</span>
+        {% else %}<span class="badge missing">missing</span>{% endif %}
+      </div>
+      <div class="actions">
+        <form method="post" action="{{ url_for('inventory.return_confirm', entry_id=entry.entry_id) }}">
+          <input type="hidden" name="next" value="{{ url_for('inventory.bin_detail', code=bin.code) }}">
+          <button type="submit" class="primary">It's back</button>
+        </form>
+        <form method="post" action="{{ url_for('inventory.return_dismiss', entry_id=entry.entry_id) }}">
+          <input type="hidden" name="next" value="{{ url_for('inventory.bin_detail', code=bin.code) }}">
+          <button type="submit">Still out</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% if returns|length > 1 %}
+  <form method="post" action="{{ url_for('inventory.bin_returns_bulk', code=bin.code) }}"
+        class="actions">
+    <button name="action" value="confirm" class="primary">All {{ returns|length }} are back</button>
+    <button name="action" value="dismiss">None of them are</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
 
 <h2>Contents <span class="muted">({{ items|length }})</span></h2>
 <div class="grid">
@@ -133,13 +178,15 @@
 <details class="panel">
   <summary>Identification history</summary>
   <table>
-    <tr><th>When</th><th>Status</th><th>Detected</th><th>New</th><th>Known</th><th>Missing</th></tr>
+    <tr><th>When</th><th>Status</th><th>Detected</th><th>New</th><th>Known</th><th>Missing</th>
+        <th>To confirm</th></tr>
     {% for entry in sessions %}
     <tr>
       <td class="muted">{{ entry.started_at | age }}</td>
       <td>{{ entry.status }}</td>
       <td>{{ entry.detected_count }}</td><td>{{ entry.added_count }}</td>
       <td>{{ entry.matched_count }}</td><td>{{ entry.missing_count }}</td>
+      <td>{{ entry.returns_count }}</td>
     </tr>
     {% endfor %}
   </table>

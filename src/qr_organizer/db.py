@@ -21,7 +21,7 @@ from .errors import StorageError
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -187,6 +187,22 @@ CREATE TABLE IF NOT EXISTS label_stock (
 );
 CREATE INDEX IF NOT EXISTS idx_label_stock_kind ON label_stock(kind, assigned_at);
 
+CREATE TABLE IF NOT EXISTS pending_returns (
+    id             INTEGER PRIMARY KEY,
+    item_id        INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    bin_id         INTEGER NOT NULL REFERENCES bins(id) ON DELETE CASCADE,
+    session_id     INTEGER,
+    prior_status   TEXT NOT NULL,
+    confidence     REAL NOT NULL DEFAULT 0.0,
+    resolution     TEXT,
+    resolved_at    TEXT,
+    created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pending_returns_open
+    ON pending_returns(item_id, resolved_at);
+CREATE INDEX IF NOT EXISTS idx_pending_returns_bin
+    ON pending_returns(bin_id, resolved_at);
+
 CREATE TABLE IF NOT EXISTS inventory_sessions (
     id              INTEGER PRIMARY KEY,
     bin_id          INTEGER REFERENCES bins(id) ON DELETE CASCADE,
@@ -196,6 +212,7 @@ CREATE TABLE IF NOT EXISTS inventory_sessions (
     added_count     INTEGER NOT NULL DEFAULT 0,
     matched_count   INTEGER NOT NULL DEFAULT 0,
     missing_count   INTEGER NOT NULL DEFAULT 0,
+    returns_count   INTEGER NOT NULL DEFAULT 0,
     error           TEXT NOT NULL DEFAULT '',
     device_key      TEXT NOT NULL DEFAULT '',
     started_at      TEXT NOT NULL,
@@ -230,6 +247,15 @@ class Database:
                     f"database at {self.path} was written by a newer version "
                     f"(schema {current} > {SCHEMA_VERSION}); refusing to downgrade"
                 )
+            elif int(current) < SCHEMA_VERSION:
+                # The schema script above is idempotent, so it has already
+                # created whatever the newer version added. Record the bump and
+                # add any columns that a CREATE TABLE IF NOT EXISTS cannot.
+                self._add_missing_columns(conn)
+                self.set_meta("schema_version", str(SCHEMA_VERSION))
+                log.warning(
+                    "database schema upgraded from %s to %d", current, SCHEMA_VERSION
+                )
             conn.commit()
         recorded_dim = self.get_meta("embedding_dim")
         self.vec_dim = int(recorded_dim) if recorded_dim else None
@@ -237,6 +263,16 @@ class Database:
             self._ensure_vec_table(conn, self.vec_dim)
         log.info("database ready at %s (vector index: %s)", self.path,
                  "sqlite-vec" if self.vec_available else f"numpy fallback ({self.vec_error})")
+
+    def _add_missing_columns(self, conn: sqlite3.Connection) -> None:
+        """Bring an older table up to date. `ALTER TABLE ADD COLUMN` only."""
+        additions = {"inventory_sessions": {"returns_count": "INTEGER NOT NULL DEFAULT 0"}}
+        for table, columns in additions.items():
+            present = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+            for name, definition in columns.items():
+                if name not in present:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+                    log.info("added column %s.%s", table, name)
 
     def connection(self) -> sqlite3.Connection:
         conn = getattr(self._local, "conn", None)

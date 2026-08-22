@@ -86,6 +86,9 @@ class IdentificationResult:
     added_item_ids: list[int] = field(default_factory=list)
     matched_item_ids: list[int] = field(default_factory=list)
     missing_item_ids: list[int] = field(default_factory=list)
+    #: Matched items that were out on loan, in use, or missing. The user
+    #: confirms or rejects each one; nothing about them has changed yet.
+    pending_return_item_ids: list[int] = field(default_factory=list)
     unlocated_names: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     notes: str = ""
@@ -99,6 +102,8 @@ class IdentificationResult:
             parts.append(f"{len(self.matched_item_ids)} already known")
         if self.missing_item_ids:
             parts.append(f"{len(self.missing_item_ids)} missing")
+        if self.pending_return_item_ids:
+            parts.append(f"{len(self.pending_return_item_ids)} to confirm as returned")
         return ", ".join(parts)
 
 
@@ -332,7 +337,14 @@ class IdentificationPipeline:
 
     # -- diff against the bin's known contents -----------------------------
     def _reconcile(self, result: IdentificationResult) -> None:
-        """Match detections to existing items; add the rest; flag what's gone."""
+        """Diff the detections against the bin's known contents.
+
+        Three outcomes, and only one of them changes an item the user placed
+        somewhere: unrecognised detections become new items; items that were in
+        the bin and are no longer visible are flagged missing; and items that
+        were elsewhere but appear to be back are queued for the user to confirm,
+        untouched until they do.
+        """
         # Items already flagged missing stay in the candidate set: a re-inventory
         # is exactly when a missing thing turns up again, and it must be
         # recognised as the same item rather than added as a duplicate.
@@ -352,12 +364,19 @@ class IdentificationPipeline:
                 result.matched_item_ids.append(match_id)
                 prior_status = existing_by_id[match_id]["status"]
                 if prior_status != items_service.STATUS_IN_BIN:
-                    # Seeing it in the bin photo is the item being scanned back
-                    # into a bin, so it stops being missing / in use / on loan.
-                    items_service.check_into_bin(
-                        self.db, match_id, result.bin_id,
-                        detail="seen again in the latest bin photo",
+                    # It LOOKS like this came back -- but a visual match is
+                    # evidence, not a decision. Queue it for the user to confirm
+                    # and leave the status they set well alone.
+                    queued = items_service.record_pending_return(
+                        self.db,
+                        item_id=match_id,
+                        bin_id=result.bin_id,
+                        prior_status=prior_status,
+                        session_id=result.session_id,
+                        confidence=detected.confidence,
                     )
+                    if queued is not None:
+                        result.pending_return_item_ids.append(match_id)
                 continue
             item_id = items_service.create_item(
                 self.db,
@@ -444,13 +463,14 @@ class IdentificationPipeline:
         with self.db.write() as conn:
             conn.execute(
                 "UPDATE inventory_sessions SET status = 'complete', detected_count = ?, "
-                "added_count = ?, matched_count = ?, missing_count = ?, error = ?, "
-                "finished_at = ? WHERE id = ?",
+                "added_count = ?, matched_count = ?, missing_count = ?, returns_count = ?, "
+                "error = ?, finished_at = ? WHERE id = ?",
                 (
                     len(result.detected),
                     len(result.added_item_ids),
                     len(result.matched_item_ids),
                     len(result.missing_item_ids),
+                    len(result.pending_return_item_ids),
                     " | ".join(result.warnings)[:1000],
                     now_iso(),
                     result.session_id,

@@ -15,6 +15,27 @@
   {% if item.location_name %} · {{ item.location_name }}{% endif %}
 </p>
 
+{% if pending_return %}
+<div class="panel warn">
+  <p><b>This looks like it came back.</b> It was seen in
+    <a href="{{ url_for('inventory.bin_detail', code=pending_return.bin_code) }}">{{ pending_return.bin_code }}</a>
+    {{ pending_return.seen_at | age }}, but you had it
+    {% if pending_return.prior_status == 'loaned' %}out with {{ pending_return.loan_person }}
+    {% elif pending_return.prior_status == 'in_use' %}marked in use
+    {% else %}flagged missing{% endif %}. Nothing has changed yet.</p>
+  <div class="actions">
+    <form method="post" action="{{ url_for('inventory.return_confirm', entry_id=pending_return.entry_id) }}">
+      <input type="hidden" name="next" value="{{ url_for('inventory.item_detail', item_id=item.id) }}">
+      <button type="submit" class="primary">It's back in {{ pending_return.bin_code }}</button>
+    </form>
+    <form method="post" action="{{ url_for('inventory.return_dismiss', entry_id=pending_return.entry_id) }}">
+      <input type="hidden" name="next" value="{{ url_for('inventory.item_detail', item_id=item.id) }}">
+      <button type="submit">No, it's still out</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
 <div class="columns">
   <div>
     {% if item.thumbnail_path %}

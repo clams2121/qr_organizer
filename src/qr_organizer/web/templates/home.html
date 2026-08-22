@@ -9,8 +9,10 @@
   <a class="tile" href="{{ url_for('scan.scanner') }}"><b>Scan a code</b><span>Bin or place</span></a>
   <a class="tile" href="{{ url_for('search.pull_list') }}"><b>Pull list</b>
     <span>{{ pull_done }}/{{ pull_total }} collected</span></a>
-  <a class="tile {{ 'warn' if review }}" href="{{ url_for('inventory.review_queue') }}">
-    <b>Needs a name</b><span>{{ review|length }} waiting</span></a>
+  <a class="tile {{ 'warn' if review or pending_returns }}"
+     href="{{ url_for('inventory.review_queue') }}">
+    <b>Needs you</b><span>{{ review|length }} to name{% if pending_returns %},
+      {{ pending_returns }} to confirm as returned{% endif %}</span></a>
   <a class="tile" href="{{ url_for('admin.label_home') }}"><b>Print labels</b><span>Sheets of codes</span></a>
 </div>
 

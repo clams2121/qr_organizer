@@ -1,6 +1,40 @@
 {% extends "base.html" %}
 {% block title %}Needs a name — QR Organizer{% endblock %}
 {% block body %}
+{% if returns %}
+<h1>Did these come back?</h1>
+<p class="muted">Spotted in a bin photo while you had them somewhere else. Their status
+  is unchanged until you say so.</p>
+<div class="grid">
+  {% for entry in returns %}
+  <div class="card flagged">
+    {% if entry.thumbnail_path %}
+    <a href="{{ url_for('inventory.item_detail', item_id=entry.item_id) }}">
+      <img src="{{ url_for('media.thumbnail', relative=entry.thumbnail_path) }}" alt=""></a>
+    {% endif %}
+    <b>{{ entry.label }}</b>
+    <div class="badges">
+      {% if entry.prior_status == 'loaned' %}
+        <span class="badge loaned">with {{ entry.loan_person }}</span>
+      {% elif entry.prior_status == 'in_use' %}<span class="badge inuse">in use</span>
+      {% else %}<span class="badge missing">missing</span>{% endif %}
+      <span class="muted">seen in {{ entry.bin_code }} {{ entry.seen_at | age }}</span>
+    </div>
+    <div class="actions">
+      <form method="post" action="{{ url_for('inventory.return_confirm', entry_id=entry.entry_id) }}">
+        <input type="hidden" name="next" value="{{ url_for('inventory.review_queue') }}">
+        <button type="submit" class="primary">It's back</button>
+      </form>
+      <form method="post" action="{{ url_for('inventory.return_dismiss', entry_id=entry.entry_id) }}">
+        <input type="hidden" name="next" value="{{ url_for('inventory.review_queue') }}">
+        <button type="submit">Still out</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 <h1>Waiting for a name</h1>
 <p class="muted">Everything the pipeline wasn't confident about: things it couldn't
   identify, and labels it reused from a close visual match that you haven't confirmed yet.</p>

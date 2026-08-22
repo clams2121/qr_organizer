@@ -300,3 +300,124 @@ def test_populated_pages_render(client, db):
         assert b"Traceback" not in response.data
 
     assert locations_service.get_location(db, "LOC-0001") is not None
+
+
+def _queue_a_return(client, db, tmp_path, *, prior="in_use"):
+    """Get one item into the 'looks like it came back' state over HTTP."""
+
+    from conftest import make_photo
+
+    from qr_organizer.services import loans as loans_service
+
+    client.post("/bins/create", data={"code": "BIN-0001", "location_id": ""})
+    photo = make_photo(tmp_path, ["wrench"], name="ret-a.jpg")
+    client.post(
+        "/bins/BIN-0001/photo",
+        data={"photo": (io.BytesIO(photo.read_bytes()), "a.jpg")},
+        content_type="multipart/form-data",
+    )
+    _await_sessions(client, db)
+    item_id = db.query_one("SELECT id FROM items")["id"]
+
+    if prior == "loaned":
+        loan = loans_service.create_loan(db, person_name="Dave", code="LOAN-0001")
+        loans_service.assign_items(db, int(loan["id"]), [int(item_id)])
+    else:
+        items_service.mark_in_use(db, int(item_id))
+
+    again = make_photo(tmp_path, ["wrench"], name="ret-b.jpg")
+    client.post(
+        "/bins/BIN-0001/photo",
+        data={"photo": (io.BytesIO(again.read_bytes()), "b.jpg")},
+        content_type="multipart/form-data",
+    )
+    _await_sessions(client, db)
+    entry = items_service.pending_returns(db)[0]
+    return int(item_id), int(entry["entry_id"])
+
+
+def _await_sessions(client, db, timeout=20):
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        row = db.query_one(
+            "SELECT COUNT(*) AS n FROM inventory_sessions WHERE status IN ('pending','running')"
+        )
+        if not row["n"]:
+            return
+        time.sleep(0.05)
+    raise AssertionError("identification did not finish in time")
+
+
+def test_a_reappearing_item_asks_rather_than_assumes(client, db, tmp_path):
+    item_id, _ = _queue_a_return(client, db, tmp_path)
+
+    page = client.get("/bins/BIN-0001")
+    assert b"Did these come back?" in page.data
+    assert items_service.get_item(db, item_id)["status"] == "in_use"
+    assert b"to confirm as returned" in client.get("/").data
+
+
+def test_confirming_from_the_bin_page_returns_the_item(client, db, tmp_path):
+    item_id, entry_id = _queue_a_return(client, db, tmp_path, prior="loaned")
+
+    response = client.post(f"/returns/{entry_id}/confirm", data={"next": "/bins/BIN-0001"})
+    assert response.status_code == 302
+    item = items_service.get_item(db, item_id)
+    assert item["status"] == "in_bin"
+    assert item["loan_id"] is None
+    assert b"Did these come back?" not in client.get("/bins/BIN-0001").data
+
+
+def test_dismissing_from_the_bin_page_keeps_the_loan(client, db, tmp_path):
+    item_id, entry_id = _queue_a_return(client, db, tmp_path, prior="loaned")
+
+    client.post(f"/returns/{entry_id}/dismiss", data={"next": "/bins/BIN-0001"})
+    item = items_service.get_item(db, item_id)
+    assert item["status"] == "loaned"
+    assert item["loan_person"] == "Dave"
+    assert items_service.pending_returns(db) == []
+
+
+def test_bulk_confirm_resolves_every_queued_return_for_a_bin(client, db, tmp_path):
+    from conftest import make_photo
+
+    client.post("/bins/create", data={"code": "BIN-0001", "location_id": ""})
+    photo = make_photo(tmp_path, list(LAYOUT), name="bulk-a.jpg")
+    client.post(
+        "/bins/BIN-0001/photo",
+        data={"photo": (io.BytesIO(photo.read_bytes()), "a.jpg")},
+        content_type="multipart/form-data",
+    )
+    _await_sessions(client, db)
+    for row in db.query("SELECT id FROM items"):
+        items_service.mark_in_use(db, int(row["id"]))
+
+    again = make_photo(tmp_path, list(LAYOUT), name="bulk-b.jpg")
+    client.post(
+        "/bins/BIN-0001/photo",
+        data={"photo": (io.BytesIO(again.read_bytes()), "b.jpg")},
+        content_type="multipart/form-data",
+    )
+    _await_sessions(client, db)
+    assert len(items_service.pending_returns(db)) == len(LAYOUT)
+
+    client.post("/bins/BIN-0001/returns", data={"action": "confirm"})
+    assert items_service.pending_returns(db) == []
+    assert db.query_one("SELECT COUNT(*) AS n FROM items WHERE status='in_bin'")["n"] == len(LAYOUT)
+
+
+def test_the_review_queue_lists_returns_awaiting_a_decision(client, db, tmp_path):
+    _queue_a_return(client, db, tmp_path)
+    entry_id = items_service.pending_returns(db)[0]["entry_id"]
+    page = client.get("/review")
+    assert b"Did these come back?" in page.data
+    assert f"/returns/{entry_id}/confirm".encode() in page.data
+    assert f"/returns/{entry_id}/dismiss".encode() in page.data
+
+
+def test_confirming_an_already_resolved_return_is_a_clean_404(client, db, tmp_path):
+    _item_id, entry_id = _queue_a_return(client, db, tmp_path)
+    client.post(f"/returns/{entry_id}/confirm")
+    assert client.post(f"/returns/{entry_id}/confirm").status_code == 404

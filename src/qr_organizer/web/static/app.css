@@ -111,6 +111,8 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button.danger { border-color: var(--bad); color: var(--bad); }
 button.link { background: none; border: none; color: var(--accent); padding: 0; }
 form.inline { display: inline-flex; gap: .3rem; margin: .3rem 0 0; }
+.actions { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .3rem; }
+.actions form { margin: 0; }
 form.inline input { width: auto; flex: 1; }
 
 .hero-search { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin: .5rem 0 1rem; }

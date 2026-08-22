@@ -50,6 +50,7 @@ def bin_detail(code: str):
         session=session_status(context.db, session_id) if session_id else None,
         checked_out=_checked_out_items(),
         sessions=_recent_sessions(bin_id),
+        returns=items_service.pending_returns(context.db, bin_id=bin_id),
     )
 
 
@@ -182,6 +183,14 @@ def item_detail(item_id: int):
         similar=_similar_items(item_id),
         loans=loans_service.list_loans(context.db),
         bins=bins_service.list_bins(context.db),
+        pending_return=next(
+            iter(
+                entry
+                for entry in items_service.pending_returns(context.db)
+                if entry["item_id"] == item_id
+            ),
+            None,
+        ),
     )
 
 
@@ -251,9 +260,55 @@ def item_status(item_id: int):
 
 @bp.get("/review")
 def review_queue():
-    """Everything the pipeline was not confident about, in one place."""
+    """Everything waiting on a human decision, in one place."""
     context = ctx()
-    return render_template("review.html", items=items_service.list_needing_review(context.db))
+    return render_template(
+        "review.html",
+        items=items_service.list_needing_review(context.db),
+        returns=items_service.pending_returns(context.db),
+    )
+
+
+# -- returns awaiting confirmation ----------------------------------------
+
+
+@bp.post("/returns/<int:entry_id>/confirm")
+def return_confirm(entry_id: int):
+    """The user says the item really is back. Only now does its status change."""
+    context = ctx()
+    item_id = items_service.confirm_return(context.db, entry_id)
+    log_scan(kind="return_confirmed", item_id=item_id, detail="confirmed from the web UI")
+    return redirect(request.form.get("next") or url_for("inventory.review_queue"))
+
+
+@bp.post("/returns/<int:entry_id>/dismiss")
+def return_dismiss(entry_id: int):
+    """The user says it is not back. The item keeps the status they gave it."""
+    context = ctx()
+    item_id = items_service.dismiss_return(context.db, entry_id)
+    log_scan(kind="return_dismissed", item_id=item_id, detail="dismissed from the web UI")
+    return redirect(request.form.get("next") or url_for("inventory.review_queue"))
+
+
+@bp.post("/bins/<code>/returns")
+def bin_returns_bulk(code: str):
+    """Confirm or dismiss every queued return for one bin in a single decision."""
+    context = ctx()
+    record = bins_service.get_bin(context.db, code)
+    if record is None:
+        raise NotFoundError(f"no bin {code}")
+    action = request.form.get("action", "")
+    if action not in {"confirm", "dismiss"}:
+        raise ConflictError(f"unknown bulk return action {action!r}")
+
+    resolve = (
+        items_service.confirm_return if action == "confirm" else items_service.dismiss_return
+    )
+    entries = items_service.pending_returns(context.db, bin_id=int(record["id"]))
+    for entry in entries:
+        resolve(context.db, int(entry["entry_id"]))
+    log.info("%sed %d queued return(s) for %s", action, len(entries), code)
+    return redirect(url_for("inventory.bin_detail", code=code))
 
 
 # -- locations ------------------------------------------------------------

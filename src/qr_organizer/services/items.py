@@ -239,20 +239,152 @@ def check_into_bin(db: Database, item_id: int, bin_id: int, detail: str = "") ->
             "UPDATE items SET home_bin_id = ?, last_seen_at = ? WHERE id = ?",
             (bin_id, now_iso(), item_id),
         )
+    # The item is demonstrably back, so any queued "did this come back?" question
+    # is moot -- don't leave it sitting in the review queue.
+    resolve_pending_returns(db, item_id, resolution="superseded")
 
 
 def touch_seen(db: Database, item_ids: Iterable[int]) -> None:
+    """Record that these items were seen, without changing their status.
+
+    Being visible in a photo is evidence, not a decision. An item the user put
+    somewhere -- out on loan, in use, or flagged missing -- keeps that status
+    until the user confirms the return; see `record_pending_return`.
+    """
     ids = list(item_ids)
     if not ids:
         return
-    timestamp = now_iso()
     placeholders = ",".join("?" for _ in ids)
     with db.write() as conn:
         conn.execute(
-            f"UPDATE items SET last_seen_at = ?, status = CASE WHEN status = 'missing' "
-            f"THEN 'in_bin' ELSE status END WHERE id IN ({placeholders})",
-            (timestamp, *ids),
+            f"UPDATE items SET last_seen_at = ? WHERE id IN ({placeholders})",
+            (now_iso(), *ids),
         )
+
+
+# -- pending returns ------------------------------------------------------
+#
+# When a re-inventory photo turns up something the user had put elsewhere -- out
+# on loan, in use, or flagged missing -- the app does NOT decide that it came
+# back. A visual match is evidence; the user makes the call. Until they do, the
+# item keeps the status they gave it.
+
+
+def record_pending_return(
+    db: Database,
+    *,
+    item_id: int,
+    bin_id: int,
+    prior_status: str,
+    session_id: int | None = None,
+    confidence: float = 0.0,
+) -> int | None:
+    """Queue a return for the user to confirm. Returns None if already queued."""
+    with db.write() as conn:
+        existing = conn.execute(
+            "SELECT id FROM pending_returns WHERE item_id = ? AND resolved_at IS NULL",
+            (item_id,),
+        ).fetchone()
+        if existing is not None:
+            # Photographing the same bin twice must not ask the same question twice.
+            return None
+        cursor = conn.execute(
+            "INSERT INTO pending_returns("
+            "item_id, bin_id, session_id, prior_status, confidence, created_at) "
+            "VALUES(?, ?, ?, ?, ?, ?)",
+            (item_id, bin_id, session_id, prior_status, float(confidence), now_iso()),
+        )
+        entry_id = int(cursor.lastrowid)
+        conn.execute(
+            "INSERT INTO item_events(item_id, event, detail, created_at) VALUES(?, ?, ?, ?)",
+            (item_id, "return_seen",
+             f"seen in a bin photo while {prior_status}; awaiting confirmation", now_iso()),
+        )
+    log.info("item %d looks like it came back (was %s); waiting on the user",
+             item_id, prior_status)
+    return entry_id
+
+
+def pending_returns(db: Database, bin_id: int | None = None) -> list[dict[str, Any]]:
+    clause = " AND pending_returns.bin_id = ?" if bin_id is not None else ""
+    params: tuple = (bin_id,) if bin_id is not None else ()
+    return rows_to_dicts(
+        db.query(
+            "SELECT pending_returns.id AS entry_id, pending_returns.prior_status, "
+            "pending_returns.confidence, pending_returns.created_at AS seen_at, "
+            "pending_returns.bin_id, items.id AS item_id, items.label, items.status, "
+            "items.thumbnail_path, bins.code AS bin_code, bins.label AS bin_label, "
+            "loans.person_name AS loan_person, loans.code AS loan_code "
+            "FROM pending_returns "
+            "JOIN items ON items.id = pending_returns.item_id "
+            "JOIN bins ON bins.id = pending_returns.bin_id "
+            "LEFT JOIN loans ON loans.id = items.loan_id "
+            "WHERE pending_returns.resolved_at IS NULL" + clause +
+            " ORDER BY pending_returns.created_at DESC",
+            params,
+        )
+    )
+
+
+def pending_return_count(db: Database) -> int:
+    row = db.query_one("SELECT COUNT(*) AS n FROM pending_returns WHERE resolved_at IS NULL")
+    return int(row["n"]) if row else 0
+
+
+def get_pending_return(db: Database, entry_id: int) -> dict[str, Any] | None:
+    return row_to_dict(
+        db.query_one(
+            "SELECT * FROM pending_returns WHERE id = ? AND resolved_at IS NULL", (entry_id,)
+        )
+    )
+
+
+def resolve_pending_returns(db: Database, item_id: int, *, resolution: str) -> int:
+    with db.write() as conn:
+        cursor = conn.execute(
+            "UPDATE pending_returns SET resolution = ?, resolved_at = ? "
+            "WHERE item_id = ? AND resolved_at IS NULL",
+            (resolution, now_iso(), item_id),
+        )
+    return cursor.rowcount
+
+
+def confirm_return(db: Database, entry_id: int) -> int:
+    """The user says yes, it's back. Now -- and only now -- the status changes."""
+    entry = get_pending_return(db, entry_id)
+    if entry is None:
+        raise NotFoundError(f"no open return to confirm with id {entry_id}")
+    item_id = int(entry["item_id"])
+    check_into_bin(
+        db, item_id, int(entry["bin_id"]),
+        detail=f"return confirmed by the user (was {entry['prior_status']})",
+    )
+    # check_into_bin already resolves the entry as superseded; say what it was.
+    with db.write() as conn:
+        conn.execute(
+            "UPDATE pending_returns SET resolution = 'confirmed' WHERE id = ?", (entry_id,)
+        )
+    return item_id
+
+
+def dismiss_return(db: Database, entry_id: int) -> int:
+    """The user says no. The item keeps the status they gave it."""
+    entry = get_pending_return(db, entry_id)
+    if entry is None:
+        raise NotFoundError(f"no open return to dismiss with id {entry_id}")
+    item_id = int(entry["item_id"])
+    with db.write() as conn:
+        conn.execute(
+            "UPDATE pending_returns SET resolution = 'dismissed', resolved_at = ? WHERE id = ?",
+            (now_iso(), entry_id),
+        )
+        conn.execute(
+            "INSERT INTO item_events(item_id, event, detail, created_at) VALUES(?, ?, ?, ?)",
+            (item_id, "return_dismissed",
+             f"user confirmed it is still {entry['prior_status']}", now_iso()),
+        )
+    log.info("item %d is not back after all; left as %s", item_id, entry["prior_status"])
+    return item_id
 
 
 def item_history(db: Database, item_id: int, limit: int = 50) -> list[dict[str, Any]]:
