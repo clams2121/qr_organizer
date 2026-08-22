@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Bins — QR Organizer{% endblock %}
+{% block body %}
+<h1>Bins</h1>
+<table class="wide">
+  <tr><th>Code</th><th>Label</th><th>Place</th><th>Items</th><th>Missing</th><th>Updated</th></tr>
+  {% for record in bins %}
+  <tr>
+    <td><a href="{{ url_for('inventory.bin_detail', code=record.code) }}">{{ record.code }}</a></td>
+    <td>{{ record.label or '—' }}</td>
+    <td>{{ record.location_name or '—' }}</td>
+    <td>{{ record.item_count }}</td>
+    <td>{% if record.missing_count %}<span class="badge missing">{{ record.missing_count }}</span>
+        {% else %}—{% endif %}</td>
+    <td class="muted">{{ record.updated_at | age }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="muted">Nothing yet.
+    <a href="{{ url_for('admin.label_home') }}">Print a sheet of labels</a> to start.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

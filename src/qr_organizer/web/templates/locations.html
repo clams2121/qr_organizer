@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Places — QR Organizer{% endblock %}
+{% block body %}
+<h1>Places</h1>
+<p class="muted">Flat by design — a shed, a shelf, a neighbour's garage. Specificity comes
+  from the name, not from nesting.</p>
+
+<table class="wide">
+  <tr><th>Code</th><th>Name</th><th>Bins</th><th>Label</th></tr>
+  {% for location in locations %}
+  <tr>
+    <td><a href="{{ url_for('inventory.location_detail', code=location.code) }}">{{ location.code }}</a></td>
+    <td>{{ location.name }}</td>
+    <td>{{ location.bin_count }}</td>
+    <td><a href="{{ url_for('admin.single_label', code=location.code) }}">print</a></td>
+  </tr>
+  {% else %}
+  <tr><td colspan="4" class="muted">No places yet.</td></tr>
+  {% endfor %}
+</table>
+
+<form method="post" action="{{ url_for('scan.create_location') }}" class="panel">
+  <h2>Add a place</h2>
+  <label>Code <input name="code" value="{{ next_code }}"></label>
+  <label>Name <input name="name" required placeholder="Basement — under the stairs"></label>
+  <label>Notes <input name="notes"></label>
+  <button type="submit" class="primary">Create</button>
+</form>
+{% endblock %}

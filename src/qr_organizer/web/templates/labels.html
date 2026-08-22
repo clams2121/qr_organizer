@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Labels — QR Organizer{% endblock %}
+{% block body %}
+<h1>Printable labels</h1>
+<p class="muted">Codes are minted in batches and printed ahead of time. Peel the next one
+  off the sheet when you fill a tote, scan it, and the bin comes into being. Every label
+  carries the QR code and the human-readable code, so you can read a bin across the room.</p>
+
+<form method="post" action="{{ url_for('admin.label_sheet') }}" class="panel">
+  <h2>New sheet</h2>
+  <label>Kind
+    <select name="kind">
+      <option value="bin">Bins</option>
+      <option value="location">Places</option>
+    </select>
+  </label>
+  <label>How many <input type="number" name="count" value="{{ columns * rows }}" min="1" max="500"></label>
+  <p class="muted">{{ columns }} × {{ rows }} = {{ columns * rows }} per page (set in config).
+    Codes are reserved the moment you generate the sheet, so no two sheets can collide.</p>
+  <button type="submit" class="primary">Generate PDF</button>
+</form>
+
+<h2>Sheets already printed</h2>
+<table class="wide">
+  <tr><th>Sheet</th><th>Kind</th><th>Range</th><th>Used</th><th>Printed</th><th></th></tr>
+  {% for sheet in sheets %}
+  <tr>
+    <td class="mono">{{ sheet.sheet_id }}</td>
+    <td>{{ sheet.kind }}</td>
+    <td>{{ sheet.first_code }} – {{ sheet.last_code }}</td>
+    <td>{{ sheet.used }}/{{ sheet.total }}</td>
+    <td class="muted">{{ sheet.printed_at | age }}</td>
+    <td><a href="{{ url_for('admin.reprint_sheet', sheet_id=sheet.sheet_id) }}">reprint</a></td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="muted">No sheets yet.</td></tr>
+  {% endfor %}
+</table>
+
+<p class="muted">QR codes point at <code>{{ base_url }}/s/&lt;CODE&gt;</code>. If that URL
+  ever changes, set <code>server.base_url</code> in config before printing more sheets —
+  already-printed labels keep the old address.</p>
+{% endblock %}

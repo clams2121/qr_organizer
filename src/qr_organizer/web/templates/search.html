@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}{{ query or 'Search' }} — QR Organizer{% endblock %}
+{% block body %}
+<form class="hero-search" method="get" action="{{ url_for('search.search') }}">
+  <input type="search" name="q" value="{{ query }}" placeholder="wrench, tape, drill bits…" autofocus>
+  <input type="hidden" name="sort" value="{{ sort }}">
+  <label class="radio"><input type="checkbox" name="in_use" value="1"
+    {{ 'checked' if include_in_use }} onchange="this.form.submit()"> include things in use</label>
+  <button type="submit">Search</button>
+</form>
+
+{% if error %}<p class="panel bad">{{ error }}</p>{% endif %}
+
+<form class="panel compact" method="post" action="{{ url_for('search.visual_search') }}"
+      enctype="multipart/form-data">
+  <label>Or find it by photo
+    <input type="file" name="photo" accept="image/*" capture="environment"></label>
+  <button type="submit">Search by picture</button>
+</form>
+
+<p class="subhead">
+  {{ hits|length }} result{{ '' if hits|length == 1 else 's' }}
+  {% if pull_total %} · <a href="{{ url_for('search.pull_list') }}">pull list
+    {{ pull_done }}/{{ pull_total }}</a>{% endif %}
+</p>
+
+<table class="wide results">
+  <tr>
+    <th></th>
+    <th><a href="?q={{ query }}&sort=label&in_use={{ 1 if include_in_use else 0 }}">Item</a></th>
+    <th><a href="?q={{ query }}&sort=status&in_use={{ 1 if include_in_use else 0 }}">Status</a></th>
+    <th><a href="?q={{ query }}&sort=bin&in_use={{ 1 if include_in_use else 0 }}">Bin</a></th>
+    <th><a href="?q={{ query }}&sort=location&in_use={{ 1 if include_in_use else 0 }}">Where</a></th>
+    <th>Source</th>
+    <th></th>
+  </tr>
+  {% for hit in hits %}
+  <tr class="{{ 'inuse-row' if hit.in_use }}">
+    <td>{% if hit.thumbnail_url %}
+      <img class="thumb" src="{{ hit.thumbnail_url }}" alt="">{% endif %}</td>
+    <td><a href="{{ hit.detail_url }}">{{ hit.label }}</a>
+      {% if hit.description %}<div class="muted">{{ hit.description }}</div>{% endif %}
+      {% if hit.needs_review %}<span class="badge review">confirm?</span>{% endif %}</td>
+    <td>
+      {% if hit.status == 'loaned' %}<span class="badge loaned">{{ hit.status_detail }}</span>
+      {% elif hit.status == 'in_use' %}<span class="badge inuse">in use</span>
+      {% elif hit.status == 'missing' %}<span class="badge missing">missing</span>
+      {% else %}<span class="badge ok">in bin</span>{% endif %}
+    </td>
+    <td>{% if hit.container_url %}
+      <a href="{{ hit.container_url }}">{{ hit.container_label }}</a>
+      {% else %}{{ hit.container_label or '—' }}{% endif %}</td>
+    <td>{{ hit.location_name or '—' }}</td>
+    <td class="muted">{{ hit.source_name }}</td>
+    <td>
+      {% if hit.external_id in in_list %}
+        <span class="muted">on list</span>
+      {% else %}
+      <form method="post" action="{{ url_for('search.pull_add') }}">
+        <input type="hidden" name="item_id" value="{{ hit.external_id }}">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <button type="submit">+ pull</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="7" class="muted">
+    {% if query %}Nothing matched “{{ query }}”.{% else %}Type something to search.{% endif %}
+  </td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

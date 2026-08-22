@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Scan — QR Organizer{% endblock %}
+{% block body %}
+<h1>Scan a code</h1>
+
+<div id="insecure" class="panel bad" hidden>
+  <p><b>The camera needs an HTTPS page.</b> Browsers only expose the camera on a secure
+     origin, and this page was loaded over plain HTTP.</p>
+  <p>Run <code>tailscale serve --bg {{ app_context.cfg.int_('server.port', 8815) }}</code>
+     on the server and load the <code>https://</code> address it prints. Until then you
+     can point your phone's own camera app at the label — the QR codes contain a full
+     URL, so they open the right page directly.</p>
+</div>
+
+<div id="viewfinder" class="viewfinder">
+  <video id="video" playsinline muted></video>
+  <canvas id="frame" hidden></canvas>
+  <p id="hint" class="muted">Point the camera at a label.</p>
+</div>
+
+<div class="panel">
+  <h2>Or type a code</h2>
+  <form method="get" id="manual" onsubmit="event.preventDefault(); go(this.code.value);">
+    <input name="code" placeholder="{{ prefixes.bin }}-0042" autocapitalize="characters">
+    <button type="submit">Go</button>
+  </form>
+  <p class="muted">Place codes start <code>{{ prefixes.location }}-</code>,
+     bins <code>{{ prefixes.bin }}-</code>, loans <code>{{ prefixes.loan }}-</code>.</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='vendor/jsQR.js') }}"></script>
+<script src="{{ url_for('static', filename='scanner.js') }}"></script>
+{% endblock %}

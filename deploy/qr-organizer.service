@@ -1,0 +1,68 @@
+# QR Organizer — systemd unit.
+#
+# Install to /etc/systemd/system/qr-organizer.service, then:
+#   systemctl daemon-reload && systemctl enable --now qr-organizer
+#
+# See the README for the systemd-creds walkthrough that produces the
+# anthropic_api_key.cred referenced below.
+
+[Unit]
+Description=QR Organizer — QR-code storage inventory
+Documentation=https://github.com/clams2121/qr_organizer
+After=network-online.target
+Wants=network-online.target
+# Give up rather than restart-looping forever: 5 attempts per 5 minutes.
+# systemd reads these two from [Unit]; the project template lists them under
+# [Service], where modern systemd only accepts them with a deprecation warning.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=qr-organizer
+Group=qr-organizer
+
+WorkingDirectory=/opt/qr-organizer
+ExecStart=/opt/qr-organizer/.venv/bin/qr-organizer
+Environment=PYTHONUNBUFFERED=1
+Environment=QR_ORGANIZER_CONFIG=/etc/qr-organizer/config.toml
+# Where open-clip caches its model weights, so it isn't re-downloaded per boot.
+Environment=HF_HOME=/var/lib/qr-organizer/models
+
+# Encrypted at rest and sealed to this host's key/TPM. systemd decrypts it into
+# a private tmpfs visible only to this unit, as $CREDENTIALS_DIRECTORY.
+LoadCredentialEncrypted=anthropic_api_key:/etc/credstore.encrypted/anthropic_api_key.cred
+
+Restart=on-failure
+RestartSec=10
+# Hang detection: the app pings only while its critical path still works, so a
+# wedged process gets restarted rather than kept alive.
+WatchdogSec=30
+
+# /etc/qr-organizer, /var/lib/qr-organizer, /var/log/qr-organizer — created and
+# chowned by systemd on start.
+ConfigurationDirectory=qr-organizer
+StateDirectory=qr-organizer
+LogsDirectory=qr-organizer
+
+# Hardening. NoNewPrivileges is deliberately NOT set: rotating the credential
+# from the config web form shells out to sudo for two narrowly-scoped commands
+# (see qr-organizer.sudoers). If you don't want that, set
+# secrets.allow_web_rotation = false in config.toml and add
+# NoNewPrivileges=yes here.
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+# The service registry the status aggregator reads, plus the app's own dirs
+# (the *Directory= settings above already grant those).
+ReadWritePaths=/var/log/service-registry
+
+[Install]
+WantedBy=multi-user.target

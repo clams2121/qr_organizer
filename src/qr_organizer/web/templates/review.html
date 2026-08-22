@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Needs a name — QR Organizer{% endblock %}
+{% block body %}
+<h1>Waiting for a name</h1>
+<p class="muted">Everything the pipeline wasn't confident about: things it couldn't
+  identify, and labels it reused from a close visual match that you haven't confirmed yet.</p>
+
+<div class="grid">
+  {% for item in items %}
+  <div class="card flagged">
+    {% if item.thumbnail_path %}
+    <a href="{{ url_for('inventory.item_detail', item_id=item.id) }}">
+      <img src="{{ url_for('media.thumbnail', relative=item.thumbnail_path) }}" alt=""></a>
+    {% endif %}
+    <span class="badge {{ item.label_source }}">{{ item.label_source }}</span>
+    {% if item.bin_code %}<span class="muted">{{ item.bin_code }}</span>{% endif %}
+    <form method="post" action="{{ url_for('inventory.item_label', item_id=item.id) }}">
+      <input name="label" value="{{ item.label }}" required>
+      <input type="hidden" name="next" value="{{ url_for('inventory.review_queue') }}">
+      <button type="submit" class="primary">Confirm</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="muted">Nothing waiting. Everything has a label you've accepted.</p>
+  {% endfor %}
+</div>
+{% endblock %}

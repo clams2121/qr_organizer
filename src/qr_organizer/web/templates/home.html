@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block body %}
+<form class="hero-search" method="get" action="{{ url_for('search.search') }}">
+  <input type="search" name="q" placeholder="Search everything you own…" autofocus>
+  <button type="submit">Search</button>
+</form>
+
+<div class="tiles">
+  <a class="tile" href="{{ url_for('scan.scanner') }}"><b>Scan a code</b><span>Bin or place</span></a>
+  <a class="tile" href="{{ url_for('search.pull_list') }}"><b>Pull list</b>
+    <span>{{ pull_done }}/{{ pull_total }} collected</span></a>
+  <a class="tile {{ 'warn' if review }}" href="{{ url_for('inventory.review_queue') }}">
+    <b>Needs a name</b><span>{{ review|length }} waiting</span></a>
+  <a class="tile" href="{{ url_for('admin.label_home') }}"><b>Print labels</b><span>Sheets of codes</span></a>
+</div>
+
+{% if review %}
+<h2>Waiting for you to confirm a label</h2>
+<div class="grid">
+  {% for item in review %}
+  <a class="card" href="{{ url_for('inventory.item_detail', item_id=item.id) }}">
+    {% if item.thumbnail_path %}
+    <img src="{{ url_for('media.thumbnail', relative=item.thumbnail_path) }}" alt="">
+    {% endif %}
+    <b>{{ item.label }}</b>
+    <span class="badge {{ item.label_source }}">{{ item.label_source }}</span>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="columns">
+  <section>
+    <h2>Recent bins</h2>
+    <table>
+      <tr><th>Bin</th><th>Where</th><th>Items</th></tr>
+      {% for record in bins %}
+      <tr>
+        <td><a href="{{ url_for('inventory.bin_detail', code=record.code) }}">{{ record.code }}</a>
+          {% if record.label %}<span class="muted">{{ record.label }}</span>{% endif %}</td>
+        <td>{{ record.location_name or '—' }}</td>
+        <td>{{ record.item_count }}{% if record.missing_count %}
+          <span class="badge missing">{{ record.missing_count }} missing</span>{% endif %}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" class="muted">No bins yet. Print a sheet of labels and scan one.</td></tr>
+      {% endfor %}
+    </table>
+  </section>
+
+  <section>
+    <h2>Recent activity</h2>
+    <table>
+      {% for event in recent_scans %}
+      <tr>
+        <td>{{ event.kind }}</td>
+        <td>{{ event.code or event.location_name or '' }}</td>
+        <td class="muted">{{ event.device_name or event.device_ip or 'unknown device' }}</td>
+        <td class="muted">{{ event.created_at | age }}</td>
+      </tr>
+      {% else %}
+      <tr><td class="muted">Nothing scanned yet.</td></tr>
+      {% endfor %}
+    </table>
+    <p class="muted">{{ stats.items }} items indexed, {{ stats.embedded }} with a visual
+      fingerprint.</p>
+  </section>
+</div>
+{% endblock %}

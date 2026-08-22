@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{% block title %}QR Organizer{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>📦</text></svg>">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="{{ url_for('scan.home') }}">📦 QR Organizer</a>
+  <nav>
+    <a href="{{ url_for('scan.scanner') }}" class="{{ 'on' if nav_path == '/scan' }}">Scan</a>
+    <a href="{{ url_for('search.search') }}" class="{{ 'on' if nav_path.startswith('/search') }}">Search</a>
+    <a href="{{ url_for('search.pull_list') }}" class="{{ 'on' if nav_path.startswith('/pull') }}">Pull list</a>
+    <a href="{{ url_for('inventory.bin_list') }}" class="{{ 'on' if nav_path.startswith('/bins') }}">Bins</a>
+    <a href="{{ url_for('inventory.location_list') }}" class="{{ 'on' if nav_path.startswith('/location') }}">Places</a>
+    <a href="{{ url_for('inventory.loan_list') }}" class="{{ 'on' if nav_path.startswith('/loans') }}">Loans</a>
+    <a href="{{ url_for('admin.status') }}" class="{{ 'on' if nav_path == '/status' }}">Status</a>
+    <a href="{{ url_for('admin.config_form') }}" class="{{ 'on' if nav_path == '/config' }}">Config</a>
+  </nav>
+</header>
+
+{% if active_location %}
+<div class="locbar">
+  <span>Scanning into <strong>{{ active_location.location_name }}</strong>
+    ({{ active_location.location_code }}) &middot; set {{ active_location.set_at | age }}</span>
+  <form method="post" action="{{ url_for('scan.clear_location') }}">
+    <button class="link">clear</button>
+  </form>
+</div>
+{% else %}
+<div class="locbar muted">
+  No active location. Scan a place code before claiming a new bin, so nothing gets
+  tagged with a stale location.
+</div>
+{% endif %}
+
+<main>
+{% block body %}{% endblock %}
+</main>
+
+<footer>
+  <span>{{ app_context.base_url }}</span>
+  <span>bound to {{ app_context.bind_host }}</span>
+  <span>vision: {{ app_context.vision.name }}</span>
+  <span>embeddings: {{ app_context.embedder.name }}</span>
+</footer>
+{% block scripts %}{% endblock %}
+</body>
+</html>

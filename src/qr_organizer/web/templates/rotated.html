@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Credential rotation — QR Organizer{% endblock %}
+{% block body %}
+<h1>Credential rotation</h1>
+<div class="panel {{ 'good' if ok else 'bad' }}"><p>{{ message }}</p></div>
+{% if ok %}
+<p class="muted">The service is restarting; this page will stop responding for a moment.</p>
+{% endif %}
+<p><a href="{{ url_for('admin.config_form') }}">Back to config</a></p>
+{% endblock %}

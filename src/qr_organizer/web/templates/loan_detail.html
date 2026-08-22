@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}{{ loan.person_name }} — QR Organizer{% endblock %}
+{% block body %}
+<h1>{{ loan.person_name }} <span class="muted">{{ loan.code }}</span></h1>
+<p class="subhead">{{ loan.status }} · opened {{ loan.created_at | age }}
+  {% if loan.closed_at %}· closed {{ loan.closed_at | age }}{% endif %}</p>
+{% if loan.notes %}<p>{{ loan.notes }}</p>{% endif %}
+
+{% if photo %}
+<img class="hero" src="{{ url_for('media.photo', relative=photo.path) }}"
+     alt="What was handed over">
+{% endif %}
+
+<h2>Out with {{ loan.person_name }} ({{ items|length }})</h2>
+<div class="grid">
+  {% for item in items %}
+  <a class="card" href="{{ url_for('inventory.item_detail', item_id=item.id) }}">
+    {% if item.thumbnail_path %}
+    <img src="{{ url_for('media.thumbnail', relative=item.thumbnail_path) }}" alt="">{% endif %}
+    <b>{{ item.label }}</b>
+    <span class="muted">home: {{ item.bin_code or '—' }}</span>
+  </a>
+  {% else %}
+  <p class="muted">Nothing assigned yet.</p>
+  {% endfor %}
+</div>
+<p class="muted">Items come back by scanning them into any bin — no need to use this page.</p>
+
+<div class="columns">
+  <form method="post" action="{{ url_for('inventory.loan_photo', code=loan.code) }}"
+        enctype="multipart/form-data" class="panel">
+    <h2>Photo of what went out</h2>
+    <input type="file" name="photo" accept="image/*" capture="environment" required>
+    <button type="submit">Attach</button>
+  </form>
+
+  <form method="post" action="{{ url_for('inventory.loan_close', code=loan.code) }}" class="panel">
+    <h2>Close</h2>
+    <p class="muted">Only possible once everything has been checked back into a bin.</p>
+    <button type="submit">Close loan</button>
+  </form>
+</div>
+{% endblock %}

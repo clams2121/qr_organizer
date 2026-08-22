@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Status — QR Organizer{% endblock %}
+{% block body %}
+<h1>Status <span class="badge {{ report.status }}">{{ report.status }}</span></h1>
+<p class="subhead">Last successful identification: {{ report.last_success or 'none yet' }}</p>
+
+<table class="wide">
+  <tr><th>Check</th><th>State</th><th>Detail</th></tr>
+  {% for check in report.checks %}
+  <tr>
+    <td>{{ check.name }}</td>
+    <td><span class="badge {{ 'ok' if check.ok else ('error' if check.critical else 'degraded') }}">
+      {{ 'ok' if check.ok else ('error' if check.critical else 'degraded') }}</span></td>
+    <td class="mono">{{ check.detail }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+<div class="columns">
+  <section class="panel">
+    <h2>Access</h2>
+    <table>
+      <tr><td>Bound to</td><td class="mono">{{ bind_host }}:{{ app_context.cfg.int_('server.port', 8815) }}</td></tr>
+      <tr><td>Reason</td><td>{{ bind_explanation }}</td></tr>
+      <tr><td>Label URL base</td><td class="mono">{{ base_url }}</td></tr>
+      <tr><td>Tailscale IP</td><td class="mono">{{ tailscale_ip or 'not detected' }}</td></tr>
+      <tr><td>Tailscale name</td><td class="mono">{{ tailscale_host or '—' }}</td></tr>
+      <tr><td>Log file</td><td class="mono">{{ log_path }}</td></tr>
+      <tr><td>Registry entry</td><td class="mono">{{ registry.directory }}
+        {% if registry.last_write %}· written {{ registry.last_write | age }}
+        {% elif registry.last_error %}· {{ registry.last_error }}{% endif %}</td></tr>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Credential</h2>
+    <ul>{% for source, present in secret_sources %}
+      <li class="mono">{{ '✓' if present else '·' }} {{ source }}</li>{% endfor %}</ul>
+    <p class="muted">{{ stats.items }} items, {{ stats.embedded }} embedded.</p>
+  </section>
+</div>
+
+<h2>Recent identification runs</h2>
+<table class="wide">
+  <tr><th>Bin</th><th>Status</th><th>Detected</th><th>New</th><th>Missing</th><th>Started</th><th>Notes</th></tr>
+  {% for session in sessions %}
+  <tr>
+    <td>{{ session.bin_code or '—' }}</td>
+    <td><span class="badge {{ 'error' if session.status == 'error' else 'ok' }}">{{ session.status }}</span></td>
+    <td>{{ session.detected_count }}</td><td>{{ session.added_count }}</td>
+    <td>{{ session.missing_count }}</td>
+    <td class="muted">{{ session.started_at | age }}</td>
+    <td class="mono small">{{ session.error }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="7" class="muted">No photos processed yet.</td></tr>
+  {% endfor %}
+</table>
+
+<h2>Log
+  <span class="muted">{{ error_count }} error(s), {{ warning_count }} warning(s) in memory</span>
+</h2>
+<p>
+  {% for option in ['DEBUG', 'INFO', 'WARNING', 'ERROR'] %}
+  <a href="?level={{ option }}" class="{{ 'on' if level == option }}">{{ option }}</a>
+  {% endfor %}
+  <span class="muted">· full history in {{ log_path }}</span>
+</p>
+<pre class="log">
+{%- for record in records %}
+<span class="lvl-{{ record.level }}">{{ record.when }} {{ record.level }} {{ record.logger }}: {{ record.message }}</span>
+{%- endfor %}
+</pre>
+
+<h2>Recent scans</h2>
+<table class="wide">
+  <tr><th>When</th><th>What</th><th>Code</th><th>Device</th><th>Detail</th></tr>
+  {% for event in recent_scans %}
+  <tr>
+    <td class="muted">{{ event.created_at | age }}</td>
+    <td>{{ event.kind }}</td>
+    <td>{{ event.code }}</td>
+    <td>{{ event.device_name or event.device_ip or '—' }}</td>
+    <td class="muted">{{ event.detail }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

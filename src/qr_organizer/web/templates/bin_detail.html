@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}{{ bin.code }} — QR Organizer{% endblock %}
+{% block body %}
+<h1>{{ bin.code }} {% if bin.label %}<span class="muted">{{ bin.label }}</span>{% endif %}</h1>
+<p class="subhead">
+  {% if bin.location_name %}
+    In <a href="{{ url_for('inventory.location_detail', code=bin.location_code) }}">{{ bin.location_name }}</a>
+    <span class="muted">since {{ bin.location_set_at | age }}</span>
+  {% else %}
+    <span class="muted">No location set.</span>
+  {% endif %}
+</p>
+
+{% if session %}
+<div class="panel {{ 'bad' if session.status == 'error' else 'info' }}" id="session"
+     data-session="{{ session.id }}" data-status="{{ session.status }}">
+  {% if session.status in ('pending', 'running') %}
+    <p><span class="spinner"></span> Identifying the photo — enumerate, locate, then a
+       closer look at anything uncertain. This page refreshes itself.</p>
+  {% elif session.status == 'error' %}
+    <p><b>Identification failed.</b> {{ session.error }}</p>
+    <p class="muted">The photo is stored; nothing was added. See the
+      <a href="{{ url_for('admin.status') }}">status page</a> for the full log.</p>
+  {% else %}
+    <p><b>Done.</b> {{ session.detected_count }} detected —
+       {{ session.added_count }} new, {{ session.matched_count }} already known,
+       {{ session.missing_count }} now missing.</p>
+    {% if session.error %}<p class="muted">{{ session.error }}</p>{% endif %}
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2>{% if items %}Re-inventory{% else %}Photograph the contents{% endif %}</h2>
+  <p class="muted">Lay everything out on the floor and take one photo. A re-inventory is
+    the same action: new things get added, anything not seen is flagged missing rather
+    than deleted, and the bin's location is left alone.</p>
+  <form method="post" action="{{ url_for('inventory.bin_photo', code=bin.code) }}"
+        enctype="multipart/form-data">
+    <input type="file" name="photo" accept="image/*" capture="environment" required>
+    <button type="submit" class="primary">Identify contents</button>
+  </form>
+</div>
+
+<h2>Contents <span class="muted">({{ items|length }})</span></h2>
+<div class="grid">
+  {% for item in items %}
+  <div class="card {{ 'flagged' if item.needs_review }} {{ 'gone' if item.status == 'missing' }}">
+    <a href="{{ url_for('inventory.item_detail', item_id=item.id) }}">
+      {% if item.thumbnail_path %}
+      <img src="{{ url_for('media.thumbnail', relative=item.thumbnail_path) }}" alt="{{ item.label }}">
+      {% else %}<div class="noimg">no photo</div>{% endif %}
+      <b>{{ item.label }}</b>
+    </a>
+    <div class="badges">
+      {% if item.status == 'missing' %}<span class="badge missing">missing</span>{% endif %}
+      {% if item.status == 'in_use' %}<span class="badge inuse">in use</span>{% endif %}
+      {% if item.status == 'loaned' %}<span class="badge loaned">with {{ item.loan_person }}</span>{% endif %}
+      {% if item.needs_review %}<span class="badge review">confirm?</span>{% endif %}
+      <span class="badge {{ item.label_source }}">{{ item.label_source }}</span>
+    </div>
+    {% if item.needs_review %}
+    <form method="post" action="{{ url_for('inventory.item_label', item_id=item.id) }}" class="inline">
+      <input name="label" value="{{ item.label }}" aria-label="Label">
+      <input type="hidden" name="next" value="{{ url_for('inventory.bin_detail', code=bin.code) }}">
+      <button type="submit">Confirm</button>
+    </form>
+    {% endif %}
+  </div>
+  {% else %}
+  <p class="muted">Empty. Take a photo of the contents to fill it in.</p>
+  {% endfor %}
+</div>
+
+<details class="panel">
+  <summary>Check items back into this bin</summary>
+  <p class="muted">Anything pulled or loaned can come back to any bin, not just its
+     original one.</p>
+  <form method="post" action="{{ url_for('inventory.bin_checkin', code=bin.code) }}">
+    {% for item in checked_out %}
+    <label class="radio">
+      <input type="checkbox" name="item_id" value="{{ item.id }}">
+      {{ item.label }}
+      <span class="badge {{ 'loaned' if item.status == 'loaned' else 'inuse' }}">
+        {{ ('with ' ~ item.loan_person) if item.loan_person else 'in use' }}</span>
+      <span class="muted">{{ item.home_code or '' }}</span>
+    </label>
+    {% else %}
+    <p class="muted">Nothing is currently out.</p>
+    {% endfor %}
+    {% if checked_out %}<button type="submit">Check selected in</button>{% endif %}
+  </form>
+</details>
+
+<details class="panel">
+  <summary>Move this bin, rename it, or print its label</summary>
+  <form method="post" action="{{ url_for('inventory.bin_move', code=bin.code) }}">
+    <label>Location <span class="muted">— changing this is always deliberate; scans never
+      move a bin on their own</span>
+      <select name="location_id">
+        <option value="">Not set</option>
+        {% for location in locations %}
+        <option value="{{ location.id }}" {{ 'selected' if location.id == bin.location_id }}>
+          {{ location.name }} ({{ location.code }})</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Move bin</button>
+  </form>
+  <form method="post" action="{{ url_for('inventory.bin_update', code=bin.code) }}">
+    <label>Label <input name="label" value="{{ bin.label }}"></label>
+    <label>Notes <textarea name="notes" rows="2">{{ bin.notes }}</textarea></label>
+    <button type="submit">Save</button>
+  </form>
+  <p><a href="{{ url_for('admin.single_label', code=bin.code) }}">Print a large label for {{ bin.code }}</a></p>
+</details>
+
+{% if photos %}
+<details class="panel">
+  <summary>Photos ({{ photos|length }})</summary>
+  <div class="grid">
+    {% for photo in photos %}
+    <a class="card" href="{{ url_for('media.photo', relative=photo.path) }}">
+      <img src="{{ url_for('media.photo', relative=photo.path) }}" alt="">
+      <span class="muted">{{ photo.created_at | age }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
+
+{% if sessions %}
+<details class="panel">
+  <summary>Identification history</summary>
+  <table>
+    <tr><th>When</th><th>Status</th><th>Detected</th><th>New</th><th>Known</th><th>Missing</th></tr>
+    {% for entry in sessions %}
+    <tr>
+      <td class="muted">{{ entry.started_at | age }}</td>
+      <td>{{ entry.status }}</td>
+      <td>{{ entry.detected_count }}</td><td>{{ entry.added_count }}</td>
+      <td>{{ entry.matched_count }}</td><td>{{ entry.missing_count }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</details>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Poll while identification runs; the pipeline is a background worker.
+const panel = document.getElementById('session');
+if (panel && ['pending', 'running'].includes(panel.dataset.status)) {
+  const id = panel.dataset.session;
+  const poll = setInterval(async () => {
+    try {
+      const response = await fetch(`/api/sessions/${id}`, {headers: {'X-Requested-With': 'fetch'}});
+      if (!response.ok) return;
+      const data = await response.json();
+      if (data.status === 'complete' || data.status === 'error') {
+        clearInterval(poll);
+        location.reload();
+      }
+    } catch (err) { /* transient; the next tick retries */ }
+  }, 2500);
+}
+</script>
+{% endblock %}

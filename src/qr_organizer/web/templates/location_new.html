@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ code }} — new place{% endblock %}
+{% block body %}
+<h1>{{ code }} isn't a place yet</h1>
+<p>Name it and it becomes the active location for everything you scan next.</p>
+<form method="post" action="{{ url_for('scan.create_location') }}" class="panel">
+  <input type="hidden" name="code" value="{{ code }}">
+  <label>Name
+    <input name="name" required autofocus placeholder="e.g. Shed — north wall shelves">
+  </label>
+  <label>Notes <span class="muted">(optional)</span>
+    <textarea name="notes" rows="2"></textarea>
+  </label>
+  <p class="muted">Places are flat — no nesting. Put the detail in the name.</p>
+  <button type="submit" class="primary">Create place</button>
+</form>
+{% endblock %}
