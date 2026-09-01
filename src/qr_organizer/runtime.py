@@ -126,6 +126,10 @@ class AppContext:
             return True, f"{directory} absent (no status aggregator on this host)"
         if self.registry_writer.last_error:
             return False, self.registry_writer.last_error
+        if self.registry_writer.last_write is None:
+            # True whenever the process isn't the running server -- e.g. a CLI
+            # --validate-config run, which never starts the periodic writer.
+            return True, f"{directory} present; written once the server starts"
         return True, f"last written {self.registry_writer.last_write}"
 
     def _config_probe(self) -> tuple[bool, str]:

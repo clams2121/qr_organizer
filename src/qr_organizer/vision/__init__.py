@@ -29,6 +29,7 @@ def build_backend(cfg) -> StructuredVisionBackend:
             base_url=cfg.str_("vision.ollama.base_url", "http://127.0.0.1:11434"),
             model=cfg.str_("vision.ollama.model", "qwen2.5vl:7b"),
             timeout_seconds=cfg.int_("vision.ollama.timeout_seconds", 300),
+            context_length=cfg.int_("vision.ollama.context_length", 8192),
         )
 
     from .. import secrets as secrets_module

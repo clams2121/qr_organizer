@@ -62,7 +62,12 @@ api_key_env = "ANTHROPIC_API_KEY"
 [vision.ollama]
 base_url = "http://127.0.0.1:11434"
 model = "qwen2.5vl:7b"
+# A local model on CPU can take minutes per photo; raise this if you see
+# timeouts rather than assuming the photo failed.
 timeout_seconds = 300
+# Context window for each call. Ollama's own default is smaller than a photo
+# plus these prompts needs, which shows up as replies that fail to parse.
+context_length = 8192
 
 [embeddings]
 # "clip" for local open-clip embeddings (needs the `embeddings` extra),
