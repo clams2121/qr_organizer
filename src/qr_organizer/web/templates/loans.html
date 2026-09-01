@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Loans — QR Organizer{% endblock %}
+{% block body %}
+<h1>Loans</h1>
+<p class="muted">A loan is a bin that belongs to a person instead of a place.</p>
+
+<table class="wide">
+  <tr><th>Code</th><th>Person</th><th>Items</th><th>Opened</th><th>State</th></tr>
+  {% for loan in loans %}
+  <tr>
+    <td><a href="{{ url_for('inventory.loan_detail', code=loan.code) }}">{{ loan.code }}</a></td>
+    <td>{{ loan.person_name }}</td>
+    <td>{{ loan.item_count }}</td>
+    <td class="muted">{{ loan.created_at | age }}</td>
+    <td>{{ loan.status }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="muted">Nothing is out on loan.</td></tr>
+  {% endfor %}
+</table>
+
+<form method="post" action="{{ url_for('inventory.loan_create') }}" class="panel">
+  <h2>New loan</h2>
+  <label>Person <input name="person_name" required placeholder="e.g. Dave next door"></label>
+  <label>Code <input name="code" value="{{ next_code }}"></label>
+  <label>Notes <input name="notes"></label>
+  <p class="muted">Add items from any search result or from the item page once it exists.</p>
+  <button type="submit" class="primary">Open loan</button>
+</form>
+{% endblock %}

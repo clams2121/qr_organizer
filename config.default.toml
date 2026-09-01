@@ -1,0 +1,108 @@
+# QR Organizer -- default configuration.
+#
+# On first run this file is copied to ~/.config/qr-organizer/config.toml.
+# Your copy is NEVER overwritten. When a new release adds fields, they are
+# merged into your config with the defaults below, logged, and highlighted in
+# the config web page until you acknowledge them.
+
+[app]
+# Where the SQLite database, photos and thumbnails live.
+data_dir = "~/.local/share/qr-organizer"
+# Plain-text rotated log. Falls back to <data_dir>/logs if not writable.
+log_dir = "/var/log/qr-organizer"
+log_level = "INFO"
+log_max_bytes = 10485760
+log_backup_count = 5
+
+[server]
+# "auto" binds a running Tailscale interface if one is present, else 127.0.0.1.
+# Never binds 0.0.0.0. Set an explicit address to override.
+host = "auto"
+port = 8815
+# Absolute URL this server is reached at, baked into printed QR codes.
+# Leave empty to derive it from the bind address at print time.
+base_url = ""
+# Trust the X-Forwarded-For header (only enable behind `tailscale serve`).
+trust_proxy_headers = false
+
+[scanning]
+# An active location context expires after this many minutes of inactivity.
+# After that the app asks for a fresh location scan instead of silently
+# tagging bins with a stale location.
+location_context_timeout_minutes = 30
+
+[search]
+default_limit = 50
+# In-use / loaned items stay in keyword results with a status badge.
+# Set false to hide them behind an "include in use" toggle instead.
+include_in_use_by_default = true
+
+[vision]
+# "anthropic" (Claude vision, needs an API key) or "ollama" (fully local).
+backend = "anthropic"
+# Independent enumeration passes over the full photo. 1 is the enumerate ->
+# locate -> verify pipeline; raise to 2-3 to union the results of repeated
+# enumeration on very cluttered layouts (costs one full-image call each).
+enumerate_passes = 1
+max_items_per_photo = 60
+# Crops whose label confidence lands below this get a third, focused look.
+verify_low_confidence = true
+low_confidence_threshold = 0.55
+
+[vision.anthropic]
+model = "claude-opus-5"
+max_tokens = 8000
+# low | medium | high | xhigh | max
+effort = "high"
+# systemd-creds name (read from $CREDENTIALS_DIRECTORY) ...
+credential_name = "anthropic_api_key"
+# ... falling back to this environment variable / .env entry.
+api_key_env = "ANTHROPIC_API_KEY"
+
+[vision.ollama]
+base_url = "http://127.0.0.1:11434"
+model = "qwen2.5vl:7b"
+timeout_seconds = 300
+
+[embeddings]
+# "clip" for local open-clip embeddings (needs the `embeddings` extra),
+# "none" to disable visual RAG entirely (health reports degraded).
+backend = "clip"
+model = "ViT-B-32"
+pretrained = "laion2b_s34b_b79k"
+device = "cpu"
+# Cosine similarity at or above which a past label is auto-applied as a
+# low-confidence suggestion the user can confirm.
+match_threshold = 0.86
+# ... and below which nothing is suggested at all.
+suggest_threshold = 0.78
+
+[images]
+max_dimension = 2048
+thumbnail_size = 384
+jpeg_quality = 88
+
+[labels]
+bin_prefix = "BIN"
+location_prefix = "LOC"
+loan_prefix = "LOAN"
+code_digits = 4
+sheet_page_size = "letter"
+sheet_columns = 3
+sheet_rows = 8
+
+[registry]
+# Shared service-registry directory watched by the status aggregator.
+# Written at startup and refreshed periodically; skipped if absent.
+dir = "/var/log/service-registry"
+refresh_minutes = 7
+
+[health]
+# sd_notify watchdog keepalive (no-op outside systemd).
+watchdog = true
+
+[secrets]
+# Narrow sudoers-backed rotation from the config web form.
+allow_web_rotation = true
+credentials_dir = "/etc/credstore.encrypted"
+systemd_unit = "qr-organizer.service"

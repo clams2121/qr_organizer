@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Pull list — QR Organizer{% endblock %}
+{% block body %}
+<h1>Pull list <span class="muted">{{ pull_done }}/{{ pull_total }} collected</span></h1>
+<p class="muted">Tick things off as you pick them up. Ticking marks the item <b>in use</b>
+  until it's scanned back into a bin — any bin.</p>
+
+<table class="wide">
+  <tr><th></th><th></th><th>Item</th><th>Bin</th><th>Where</th></tr>
+  {% for entry in entries %}
+  <tr class="{{ 'done' if entry.checked_off_at }}">
+    <td>
+      {% if entry.checked_off_at %}
+      <form method="post" action="{{ url_for('search.pull_uncheck') }}">
+        <input type="hidden" name="item_id" value="{{ entry.item_id }}">
+        <button title="Undo">✓</button></form>
+      {% else %}
+      <form method="post" action="{{ url_for('search.pull_check') }}">
+        <input type="hidden" name="item_id" value="{{ entry.item_id }}">
+        <button class="primary" title="Got it">Got it</button></form>
+      {% endif %}
+    </td>
+    <td>{% if entry.thumbnail_path %}
+      <img class="thumb" src="{{ url_for('media.thumbnail', relative=entry.thumbnail_path) }}"
+           alt="">{% endif %}</td>
+    <td><a href="{{ url_for('inventory.item_detail', item_id=entry.item_id) }}">{{ entry.label }}</a>
+      {% if entry.loan_person %}<span class="badge loaned">with {{ entry.loan_person }}</span>{% endif %}</td>
+    <td>{% if entry.bin_code %}
+      <a href="{{ url_for('inventory.bin_detail', code=entry.bin_code) }}">{{ entry.bin_code }}</a>
+      {% if entry.bin_label %}<span class="muted">{{ entry.bin_label }}</span>{% endif %}
+      {% else %}—{% endif %}</td>
+    <td>{{ entry.location_name or '—' }}
+      <form method="post" action="{{ url_for('search.pull_remove') }}" class="inline">
+        <input type="hidden" name="item_id" value="{{ entry.item_id }}">
+        <button class="link">remove</button></form></td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="muted">The list is empty. Add things from
+    <a href="{{ url_for('search.search') }}">search</a>.</td></tr>
+  {% endfor %}
+</table>
+
+{% if entries %}
+<form method="post" action="{{ url_for('search.pull_clear') }}" class="panel">
+  <button name="only_checked" value="1">Clear the collected ones</button>
+  <button name="only_checked" value="0" class="danger">Clear the whole list</button>
+  <span class="muted">Clearing the list doesn't change any item's status.</span>
+</form>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{{ code }} — new bin{% endblock %}
+{% block body %}
+<h1>{{ code }} is a new bin</h1>
+{% if not known_stock %}
+<p class="panel warn">This code isn't from a printed sheet. That's fine — it just means
+  it was hand-written or from another system.</p>
+{% endif %}
+
+{% if expired %}
+<p class="panel bad">The active location expired while this form was open. Scan the place
+  code again, or pick a location below.</p>
+{% endif %}
+
+<form method="post" action="{{ url_for('scan.create_bin') }}" class="panel">
+  <input type="hidden" name="code" value="{{ code }}">
+
+  <label>Label printed on the tote <span class="muted">(optional)</span>
+    <input name="label" placeholder="e.g. Bathroom plumbing">
+  </label>
+
+  <fieldset>
+    <legend>Where is it?</legend>
+    {% if active %}
+    <label class="radio">
+      <input type="radio" name="location_id" value="active" checked>
+      <b>{{ active.location_name }}</b> ({{ active.location_code }})
+      <span class="muted">— the place you scanned {{ active.set_at | age }}</span>
+    </label>
+    {% else %}
+    <p class="muted">No live location context{% if timeout %} (it times out after
+      {{ timeout }} minutes of inactivity){% endif %}. Scan the place code to tag this bin
+      automatically, or choose one here.</p>
+    {% endif %}
+    <label class="radio">
+      <input type="radio" name="location_id" value="" {{ 'checked' if not active }}>
+      Not set yet
+    </label>
+    {% for location in locations %}
+    <label class="radio">
+      <input type="radio" name="location_id" value="{{ location.id }}">
+      {{ location.name }} <span class="muted">({{ location.code }})</span>
+    </label>
+    {% endfor %}
+  </fieldset>
+
+  <button type="submit" class="primary">Create {{ code }}</button>
+</form>
+{% endblock %}

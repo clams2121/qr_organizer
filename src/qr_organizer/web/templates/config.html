@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Config — QR Organizer{% endblock %}
+{% block body %}
+<h1>Configuration</h1>
+<p class="subhead mono">{{ cfg.path }}</p>
+
+{% if request.args.get('saved') %}
+<p class="panel good">Saved. Changes to the vision backend, embedding model or binding
+  need a service restart to take effect.</p>
+{% endif %}
+
+{% if errors %}
+<div class="panel bad"><b>Not saved.</b>
+  <ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>
+{% endif %}
+
+{% if schema_state.added_fields and not schema_state.acknowledged %}
+<div class="panel warn">
+  <b>Schema migration.</b> {{ schema_state.added_fields|length }} field(s) were added to
+  your config on {{ schema_state.migrated_at }} and filled in with defaults. They're
+  highlighted below.
+  <ul class="mono">{% for field in schema_state.added_fields %}<li>{{ field }}</li>{% endfor %}</ul>
+  <form method="post" action="{{ url_for('admin.config_acknowledge') }}">
+    <button type="submit">I've reviewed these</button>
+  </form>
+</div>
+{% endif %}
+
+<form method="post" action="{{ url_for('admin.config_save') }}">
+  {% for section in sections %}
+  <fieldset class="panel {{ 'warn' if section.has_new }}">
+    <legend>{{ section.name }}{% if section.has_new %} <span class="badge new">new fields</span>{% endif %}</legend>
+    {% for field in section.fields %}
+    <label class="cfg {{ 'is-new' if field.is_new }} {{ 'is-default' if field.is_default }}">
+      <span class="cfg-name mono">{{ field.name }}
+        {% if field.is_new %}<span class="badge new">new</span>{% endif %}
+        {% if field.is_default and not field.is_new %}<span class="badge default">default</span>{% endif %}
+      </span>
+      {% if field.type == 'bool' %}
+        <input type="checkbox" name="field:{{ field.key }}" {{ 'checked' if field.value }}
+               {{ 'disabled' if field.read_only }}>
+      {% else %}
+        <input name="field:{{ field.key }}" value="{{ field.value }}"
+               {{ 'readonly' if field.read_only }}>
+      {% endif %}
+    </label>
+    {% endfor %}
+  </fieldset>
+  {% endfor %}
+  <button type="submit" class="primary">Save configuration</button>
+</form>
+
+<div class="panel">
+  <h2>API credential</h2>
+  <p>Where the app currently looks for
+     <code>{{ credential_name }}</code>:</p>
+  <ul>
+    {% for source, present in secret_sources %}
+    <li class="mono">{{ '✓' if present else '·' }} {{ source }}</li>
+    {% endfor %}
+  </ul>
+  {% if rotation_allowed %}
+  <form method="post" action="{{ url_for('admin.rotate_secret') }}"
+        onsubmit="return confirm('Rotate the credential and restart the service now?')">
+    <label>New value <input name="value" type="password" autocomplete="off" required></label>
+    <p class="muted">Re-encrypts with <code>systemd-creds</code> and restarts the unit via
+      two narrow sudo rules. <b>Put the new value in your password manager first</b> — the
+      encrypted file is sealed to this host and is not a backup.</p>
+    <button type="submit" class="danger">Rotate and restart</button>
+  </form>
+  {% else %}
+  <p class="muted">Rotation from this form is disabled
+    (<code>secrets.allow_web_rotation</code>).</p>
+  {% endif %}
+</div>
+{% endblock %}

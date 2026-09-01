@@ -1,0 +1,18 @@
+# Install as /etc/sudoers.d/qr-organizer, mode 0440, and validate with:
+#   visudo -c -f /etc/sudoers.d/qr-organizer
+#
+# These two lines are the ENTIRE privilege escalation this service has. They
+# name exact command lines including every argument, so the service account
+# cannot encrypt to a different path, name a different credential, or restart a
+# different unit. Adjust the credential name and unit here if you changed them
+# in config.toml — a mismatch means rotation fails loudly rather than silently
+# doing something broader.
+
+Cmnd_Alias QRO_ROTATE = /usr/bin/systemd-creds encrypt --name=anthropic_api_key - /etc/credstore.encrypted/anthropic_api_key.cred
+Cmnd_Alias QRO_RESTART = /usr/bin/systemctl restart qr-organizer.service
+
+qr-organizer ALL=(root) NOPASSWD: QRO_ROTATE, QRO_RESTART
+
+# sudo is invoked non-interactively (sudo -n) from an HTTP request handler.
+Defaults!QRO_ROTATE  !requiretty
+Defaults!QRO_RESTART !requiretty

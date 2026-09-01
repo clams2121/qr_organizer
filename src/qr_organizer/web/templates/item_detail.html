@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}{{ item.label }} — QR Organizer{% endblock %}
+{% block body %}
+<h1>{{ item.label }}</h1>
+<p class="subhead">
+  {% if item.status == 'loaned' %}
+    <span class="badge loaned">with {{ item.loan_person }}</span>
+    <a href="{{ url_for('inventory.loan_detail', code=item.loan_code) }}">{{ item.loan_code }}</a>
+  {% elif item.status == 'in_use' %}<span class="badge inuse">in use</span>
+  {% elif item.status == 'missing' %}<span class="badge missing">missing since {{ item.status_changed_at | age }}</span>
+  {% else %}<span class="badge ok">in bin</span>{% endif %}
+  {% if item.bin_code %}
+    · <a href="{{ url_for('inventory.bin_detail', code=item.bin_code) }}">{{ item.bin_code }}</a>
+  {% endif %}
+  {% if item.location_name %} · {{ item.location_name }}{% endif %}
+</p>
+
+{% if pending_return %}
+<div class="panel warn">
+  <p><b>This looks like it came back.</b> It was seen in
+    <a href="{{ url_for('inventory.bin_detail', code=pending_return.bin_code) }}">{{ pending_return.bin_code }}</a>
+    {{ pending_return.seen_at | age }}, but you had it
+    {% if pending_return.prior_status == 'loaned' %}out with {{ pending_return.loan_person }}
+    {% elif pending_return.prior_status == 'in_use' %}marked in use
+    {% else %}flagged missing{% endif %}. Nothing has changed yet.</p>
+  <div class="actions">
+    <form method="post" action="{{ url_for('inventory.return_confirm', entry_id=pending_return.entry_id) }}">
+      <input type="hidden" name="next" value="{{ url_for('inventory.item_detail', item_id=item.id) }}">
+      <button type="submit" class="primary">It's back in {{ pending_return.bin_code }}</button>
+    </form>
+    <form method="post" action="{{ url_for('inventory.return_dismiss', entry_id=pending_return.entry_id) }}">
+      <input type="hidden" name="next" value="{{ url_for('inventory.item_detail', item_id=item.id) }}">
+      <button type="submit">No, it's still out</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<div class="columns">
+  <div>
+    {% if item.thumbnail_path %}
+    <img class="hero" src="{{ url_for('media.thumbnail', relative=item.thumbnail_path) }}" alt="">
+    {% endif %}
+    <p class="muted">Label came from <b>{{ item.label_source }}</b>
+      {% if item.label_confidence %}(confidence {{ '%.2f'|format(item.label_confidence) }}){% endif %}.
+      First seen {{ item.first_seen_at | age }}, last seen {{ item.last_seen_at | age }}.</p>
+  </div>
+
+  <div>
+    <form method="post" action="{{ url_for('inventory.item_label', item_id=item.id) }}" class="panel">
+      <h2>Label</h2>
+      <label>Name <input name="label" value="{{ item.label }}" required></label>
+      <label>Detail <input name="description" value="{{ item.description }}"></label>
+      <label class="radio"><input type="checkbox" name="reembed" value="1">
+        Recompute its visual fingerprint too</label>
+      <p class="muted">Correcting a label updates the matching library immediately — the
+        next photo with something that looks like this will suggest the new name.</p>
+      <button type="submit" class="primary">Save label</button>
+    </form>
+
+    <form method="post" action="{{ url_for('inventory.item_notes', item_id=item.id) }}" class="panel">
+      <label>Notes <textarea name="notes" rows="3">{{ item.notes }}</textarea></label>
+      <button type="submit">Save notes</button>
+    </form>
+
+    <form method="post" action="{{ url_for('inventory.item_status', item_id=item.id) }}" class="panel">
+      <h2>Status</h2>
+      <select name="bin_id">
+        {% for record in bins %}
+        <option value="{{ record.id }}" {{ 'selected' if record.id == item.bin_id }}>
+          {{ record.code }}{% if record.label %} — {{ record.label }}{% endif %}</option>
+        {% endfor %}
+      </select>
+      <button name="action" value="check_in">Check into that bin</button>
+      <button name="action" value="in_use">Mark in use</button>
+      <button name="action" value="missing">Flag missing</button>
+    </form>
+
+    <form method="post" action="{{ url_for('inventory.item_delete', item_id=item.id) }}"
+          class="panel" onsubmit="return confirm('Delete {{ item.label }} permanently?')">
+      <button class="danger">Delete this item</button>
+      <span class="muted">Only for genuine mistakes — use “missing” for things you can't find.</span>
+    </form>
+  </div>
+</div>
+
+{% if similar %}
+<h2>Looks similar</h2>
+<div class="grid">
+  {% for hit in similar %}
+  <a class="card" href="{{ hit.detail_url }}">
+    {% if hit.thumbnail_url %}<img src="{{ hit.thumbnail_url }}" alt="">{% endif %}
+    <b>{{ hit.label }}</b>
+    <span class="muted">{{ '%.0f'|format(hit.score * 100) }}% match · {{ hit.container_label }}</span>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<details class="panel">
+  <summary>History</summary>
+  <table>
+    {% for entry in history %}
+    <tr><td class="muted">{{ entry.created_at | age }}</td><td>{{ entry.event }}</td>
+        <td>{{ entry.detail }}</td></tr>
+    {% endfor %}
+  </table>
+</details>
+{% endblock %}
