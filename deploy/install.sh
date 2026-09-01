@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
-# One-shot installer for the systemd deployment. Idempotent; safe to re-run.
+# Installer for the systemd deployment. Idempotent: re-running it on a newer
+# checkout is also the supported way to UPDATE an existing install.
 #
 #   sudo ./deploy/install.sh
+#
+# On an update it replaces the code, reinstalls the venv (keeping the
+# embeddings extra if you had it), and leaves your config, database, photos
+# and credentials alone.
 #
 # It does NOT set the API credential — that step is manual and documented in
 # the README, because the plaintext must reach your password manager first.
@@ -23,17 +28,35 @@ id -u "$APP" >/dev/null 2>&1 || useradd --system --home-dir /var/lib/$APP \
 
 echo "==> code at $PREFIX"
 mkdir -p "$PREFIX"
+# Replace the tree rather than merging into it, so a module deleted upstream
+# does not linger in an updated install and get imported.
+rm -rf "$PREFIX/src"
 cp -r "$SOURCE/src" "$SOURCE/pyproject.toml" "$SOURCE/config.default.toml" \
       "$SOURCE/README.md" "$PREFIX/"
 
 echo "==> virtualenv"
+# On an update, keep whatever optional extras are already in place -- silently
+# dropping the embeddings extra would turn visual matching off without saying so.
+EXTRAS=""
+if [[ -x "$PREFIX/.venv/bin/python" ]] \
+   && "$PREFIX/.venv/bin/python" -c "import open_clip" >/dev/null 2>&1; then
+  EXTRAS="[embeddings]"
+  echo "    embeddings extra is installed; keeping it"
+fi
+
+if [[ ! -x "$PREFIX/.venv/bin/python" ]]; then
+  if command -v uv >/dev/null 2>&1; then
+    uv venv "$PREFIX/.venv"
+  else
+    python3 -m venv "$PREFIX/.venv"
+    "$PREFIX/.venv/bin/pip" install --upgrade pip
+  fi
+fi
+
 if command -v uv >/dev/null 2>&1; then
-  uv venv "$PREFIX/.venv"
-  uv pip install --python "$PREFIX/.venv/bin/python" "$PREFIX"
+  uv pip install --python "$PREFIX/.venv/bin/python" "$PREFIX$EXTRAS"
 else
-  python3 -m venv "$PREFIX/.venv"
-  "$PREFIX/.venv/bin/pip" install --upgrade pip
-  "$PREFIX/.venv/bin/pip" install "$PREFIX"
+  "$PREFIX/.venv/bin/pip" install "$PREFIX$EXTRAS"
 fi
 
 echo "==> directories"
