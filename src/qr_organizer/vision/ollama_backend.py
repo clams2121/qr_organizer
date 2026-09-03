@@ -31,10 +31,12 @@ class OllamaVisionBackend(StructuredVisionBackend):
         base_url: str = "http://127.0.0.1:11434",
         model: str = "qwen2.5vl:7b",
         timeout_seconds: int = 300,
+        context_length: int = 8192,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout_seconds
+        self.context_length = context_length
         self.name = f"ollama:{model}"
 
     def status(self) -> tuple[bool, str]:
@@ -71,7 +73,14 @@ class OllamaVisionBackend(StructuredVisionBackend):
             "model": self.model,
             "stream": False,
             "format": schema,
-            "options": {"temperature": 0.1},
+            "options": {
+                "temperature": 0.1,
+                # Ollama defaults to a small context window. An image plus these
+                # prompts plus a list of item names overruns it easily, and the
+                # symptom is a truncated reply that fails to parse rather than
+                # anything that names the real cause.
+                "num_ctx": self.context_length,
+            },
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt, "images": encoded},

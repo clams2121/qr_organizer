@@ -16,19 +16,100 @@ handling, every config option, health checks, design decisions.
 
 ---
 
-## Requirements
+## 1. Install the dependencies
 
-- Python 3.11+ and [uv](https://docs.astral.sh/uv/)
-- An [Anthropic API key](https://console.anthropic.com/), *or* a local
-  [Ollama](https://ollama.com/) install if you'd rather nothing left the host
-- Linux, if you want the systemd deployment
+You need **git**, **uv** (which can also supply Python), and a way to identify
+photos — either a local **Ollama**, or an Anthropic API key.
+
+```bash
+# uv — it manages the virtualenv and can install Python for you
+curl -LsSf https://astral.sh/uv/install.sh | sh
+exec $SHELL -l                       # pick up the new PATH
+
+python3 --version                    # need 3.11 or newer
+uv python install 3.12               # only if yours is older; uv will use this
+```
+
+On Debian/Ubuntu, `sudo apt install -y git curl` covers the rest. Nothing else
+is needed — `uv sync` builds the virtualenv and pulls every Python dependency.
 
 ---
 
-## Install
+## 2. Choose how photos get identified
 
-**As a service (recommended).** Runs on boot, restarts on failure, keeps the API
-key encrypted at rest:
+|  | **Ollama** (local) | **Claude** (hosted) |
+| --- | --- | --- |
+| Cost | free | ~5–15¢ per photo |
+| Data | never leaves the host | photos go to the Anthropic API |
+| Needs | a GPU, realistically | an API key |
+| Quality | good; weaker at picking out many small cluttered objects | best |
+
+Both are supported and you can switch later by editing one config line — your
+inventory is unaffected either way. **Step 3 sets up Ollama; skip to
+[step 4](#4-install-qr-organizer) if you're using Claude.**
+
+Embeddings are always local regardless of this choice, so the "recognise a thing
+I've labelled before" behaviour costs nothing and works offline in both cases.
+
+---
+
+## 3. Set up Ollama
+
+**Install and start it.**
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh    # Linux; installs and starts a systemd service
+brew install ollama && brew services start ollama # macOS
+systemctl status ollama                           # confirm it's running
+```
+
+**Pull a vision model.** It must be a *vision* model — a text-only model will
+load happily and then fail on every photo.
+
+| Model | Roughly | Notes |
+| --- | --- | --- |
+| `qwen2.5vl:7b` | ~6 GB | the default in `config.toml`; the balanced choice |
+| `qwen2.5vl:3b` | ~3 GB | for a smaller GPU, at some cost in accuracy |
+| `qwen2.5vl:32b` | ~21 GB | if you have the VRAM for it |
+
+```bash
+ollama pull qwen2.5vl:7b
+ollama list                          # confirm it's there
+```
+
+Check the current tags and sizes at [ollama.com/library](https://ollama.com/library) —
+they move faster than this README. Whatever you pick, put the tag exactly as
+`ollama list` prints it into `vision.ollama.model`.
+
+**Hardware, honestly.** A 7B vision model wants roughly 8 GB of VRAM. It will
+run on CPU, but expect minutes per photo rather than seconds — workable for
+inventorying a few bins in the evening, tedious for a whole garage. Each photo
+costs about two model calls, plus a small one for anything it's unsure about.
+
+**Point the app at it.** In `config.toml` (see
+[step 4](#4-install-qr-organizer) for where that lives):
+
+```toml
+[vision]
+backend = "ollama"        # this is the line that matters; the default is "anthropic"
+
+[vision.ollama]
+base_url = "http://127.0.0.1:11434"
+model = "qwen2.5vl:7b"    # exactly as `ollama list` shows it
+timeout_seconds = 300     # raise it if you're on CPU and see timeouts
+context_length = 8192     # raise it if replies come back unparseable
+```
+
+Ollama on a *different* machine works too: set `base_url` to that host, and set
+`OLLAMA_HOST=0.0.0.0` on it so it listens beyond its own loopback.
+
+No API key is involved anywhere in this path.
+
+---
+
+## 4. Install QR Organizer
+
+**As a service (recommended).** Runs on boot, restarts on failure:
 
 ```bash
 git clone https://github.com/clams2121/qr_organizer.git
@@ -45,10 +126,22 @@ uv sync
 uv run qr-organizer --setup
 ```
 
-Either way, add `--extra embeddings` / install the `embeddings` extra to turn on
-visual matching — it's what lets the app recognise a thing it has seen before and
-reuse your label for it. It pulls in torch (~2 GB). Without it the app works
-fine, reports `degraded` on `/health`, and asks you to name more things.
+Your config file is now at:
+
+| Install | Config file |
+| --- | --- |
+| Service | `/etc/qr-organizer/config.toml` |
+| Virtualenv | `~/.config/qr-organizer/config.toml` |
+
+Edit it now if you're using Ollama — that's the `backend = "ollama"` line from
+step 3.
+
+### Turn on visual matching
+
+Optional but worth it: it's what lets the app recognise something it has seen
+before and reuse your label instead of asking again. It pulls in torch (~2 GB).
+Without it everything works, `/health` reports `degraded`, and you name more
+things by hand.
 
 ```bash
 uv sync --extra embeddings                                      # venv
@@ -56,49 +149,67 @@ sudo uv pip install --python /opt/qr-organizer/.venv/bin/python \
   '/opt/qr-organizer[embeddings]'                               # service
 ```
 
-### Set the API key
+### If you chose Claude instead
 
-Skip this entirely if you set `vision.backend = "ollama"`.
-
-**Service:** store the key in your password manager first — the encrypted copy is
-sealed to this host and can't be recovered anywhere else. Then:
+Store the key in your password manager first — the encrypted copy is sealed to
+this host and can't be recovered anywhere else.
 
 ```bash
+# service
 sudo install -d -m 0700 /etc/credstore.encrypted
 sudo systemd-creds encrypt --name=anthropic_api_key - \
   /etc/credstore.encrypted/anthropic_api_key.cred      # paste the key, then Ctrl-D
-```
 
-**Virtualenv:**
-
-```bash
+# virtualenv
 install -m 600 /dev/null ~/.config/qr-organizer/.env
 printf 'ANTHROPIC_API_KEY=sk-ant-...\n' >> ~/.config/qr-organizer/.env
 ```
 
-Full details, including rotating the key from the web UI:
-[Secrets](docs/reference.md#secrets).
+Rotating the key later: [Secrets](docs/reference.md#secrets).
 
 ---
 
-## Run
+## 5. Run it
 
 ```bash
 sudo systemctl enable --now qr-organizer     # service
 uv run qr-organizer                          # virtualenv
 ```
 
-Then check it's happy — `uv run` from the checkout, or the service's own binary:
+**Check it before you go near a bin.** `--validate-config` tests every backend
+it's configured to use and tells you exactly what's wrong:
+
+```console
+$ uv run qr-organizer --validate-config
+status:  ok
+  [ok  ] database: ok
+  [ok  ] vision: qwen2.5vl:7b on http://127.0.0.1:11434
+  [ok  ] embeddings: open_clip:ViT-B-32/laion2b_s34b_b79k (512d, cpu)
+  [ok  ] search: bins: 0 item(s), 0 embedded, index: sqlite-vec
+  [ok  ] storage: 88.1 GiB free on /var/lib/qr-organizer
+```
+
+It exits 0 healthy, 1 degraded, 2 broken. The Ollama problems it names for you:
+
+```
+[warn] vision: http://127.0.0.1:11434 unreachable: [Errno 111] Connection refused
+       → Ollama isn't running.  systemctl start ollama
+
+[warn] vision: http://127.0.0.1:11434 is up but 'qwen2.5vl:7b' is not pulled
+              (run `ollama pull qwen2.5vl:7b`)
+       → the model name in config.toml doesn't match anything in `ollama list`
+```
+
+For the installed service, run it as the service account:
 
 ```bash
-uv run qr-organizer --validate-config              # exits 0 healthy, 1 degraded, 2 broken
 sudo -u qr-organizer env QR_ORGANIZER_CONFIG=/etc/qr-organizer/config.toml \
   /opt/qr-organizer/.venv/bin/qr-organizer --validate-config
 ```
 
-**Getting to it in a browser.** The app binds your Tailscale address if Tailscale
-is running, otherwise localhost only — never `0.0.0.0`, because it has no login
-screen and its reachability *is* the security boundary.
+**Getting to it in a browser.** The app binds your Tailscale address if
+Tailscale is running, otherwise localhost only — never `0.0.0.0`, because it has
+no login screen and its reachability *is* the security boundary.
 
 | Situation | How you reach it |
 | --- | --- |
@@ -111,7 +222,7 @@ your phone's normal camera app opens the right page.
 
 ---
 
-## Start using it
+## 6. Start using it
 
 1. **Print labels.** Open `/labels`, generate a sheet, print it. Codes are
    reserved as they're printed, so no two sheets can collide. Headless
@@ -198,8 +309,20 @@ runs are all on one page. The full log is at `/var/log/qr-organizer/app.log`
 startup). `journalctl -u qr-organizer -f` for the service.
 
 `degraded` on `/health` is normal and specific: it means something it needs
-isn't available — usually a missing API key or the embeddings extra — and it
-names which.
+isn't available — usually the embeddings extra, an unreachable Ollama, or a
+missing API key — and it names which.
+
+Running Ollama, specifically:
+
+| Symptom | Cause |
+| --- | --- |
+| `unreachable: Connection refused` | Ollama isn't running — `systemctl start ollama` |
+| `is up but '<model>' is not pulled` | the tag in `config.toml` doesn't match `ollama list` |
+| Identification times out | a slow CPU run — raise `vision.ollama.timeout_seconds` |
+| `reply was not JSON` in the log | context too small — raise `vision.ollama.context_length` |
+| Every photo finds nothing | a text-only model — pull a *vision* model |
+
+`journalctl -u ollama -f` shows what the model server itself is doing.
 
 ---
 
@@ -215,7 +338,7 @@ names which.
 
 ```bash
 uv sync --extra dev
-uv run pytest              # 110 tests, no network or API key needed
+uv run pytest              # 126 tests, no network or API key needed
 uv run ruff check src tests
 ```
 

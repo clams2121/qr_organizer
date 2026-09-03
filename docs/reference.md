@@ -108,7 +108,8 @@ rather than guessed at or silently dropped.
   and outbound network.
 - `ollama` — a local vision model (default `qwen2.5vl:7b`). No API key, no
   per-photo cost, no data leaves the host; noticeably weaker at enumerating many
-  small cluttered objects, and wants a GPU.
+  small cluttered objects, and wants a GPU. Setup walkthrough:
+  [Set up Ollama](../README.md#3-set-up-ollama).
 
 Embeddings are always local ([open-clip](https://github.com/mlfoundations/open_clip)),
 so the visual-matching library costs nothing per lookup and works offline in
@@ -389,8 +390,12 @@ The settings worth knowing about:
 | `server.base_url` | `""` | Baked into printed QR codes. Derived from the bind address when empty. |
 | `scanning.location_context_timeout_minutes` | `30` | After this much inactivity, a fresh place scan is required before new bins get tagged. |
 | `search.include_in_use_by_default` | `true` | In-use items shown with a badge rather than hidden. |
-| `vision.backend` | `"anthropic"` | or `"ollama"` |
+| `vision.backend` | `"anthropic"` | or `"ollama"` — see [setting up Ollama](../README.md#3-set-up-ollama) |
 | `vision.anthropic.model` | `"claude-opus-5"` | `claude-sonnet-5` is cheaper if you'd rather trade some recall for cost. |
+| `vision.ollama.model` | `"qwen2.5vl:7b"` | Must be a vision model, named exactly as `ollama list` prints it. |
+| `vision.ollama.base_url` | `http://127.0.0.1:11434` | Point it at another host if Ollama runs elsewhere. |
+| `vision.ollama.timeout_seconds` | `300` | Raise it for CPU-only inference, which is minutes per photo. |
+| `vision.ollama.context_length` | `8192` | Sent as `num_ctx`. Ollama's own default is too small for a photo plus these prompts, and the symptom is a reply that fails to parse. |
 | `vision.anthropic.effort` | `"high"` | `low`…`max`. Directly controls how much thinking each pass does. |
 | `vision.enumerate_passes` | `1` | Raise to 2–3 to union independent enumerations of a very cluttered photo. |
 | `embeddings.backend` | `"clip"` | `"none"` disables visual matching entirely. |
@@ -527,7 +532,7 @@ than being coerced into something plausible. A crop the model won't name goes to
 
 ```bash
 uv sync --extra dev
-uv run pytest                    # 110 tests, no network, no API key needed
+uv run pytest                    # 126 tests, no network, no API key needed
 uv run ruff check src tests
 ```
 
